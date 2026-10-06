@@ -1,7 +1,7 @@
 # Trend-Varianten im Vergleich (feste Parameter). Eigener Daten-Ordner, damit die BTC/ETH-Historie der anderen Profile unberuehrt bleibt.
 data_dir: data/quant_multi
 source: binance
-coins: [BTC, ETH, SOL, BNB, XRP]
+coins: [BTC, ETH, BNB, XRP, SOL, TRX, LINK, DOGE, ADA, AVAX, DOT, LTC, SUI, NEAR, ATOM, ZEC]
 start: "2020-09-01"
 eval_start: "2021-06-01"
 
@@ -24,3 +24,9 @@ variants:                  # die erste Variante ist der Vergleichsmassstab
   mix_crash:       {coins: [BTC, ETH], sma_n: [50, 100, 200], crash: {days: 7, pct: 0.15, mult: 0.5}}
   mix_fomc:        {coins: [BTC, ETH], sma_n: [50, 100, 200], fomc: 0.5}
   mix_5coins:      {coins: [BTC, ETH, SOL, BNB, XRP], sma_n: [50, 100, 200]}
+  mix_top12:       {coins: [BTC, ETH, BNB, XRP, SOL, TRX, LINK, DOGE, ADA, AVAX, DOT, LTC], sma_n: [50, 100, 200]}
+  mix_alt16:       {coins: [BTC, ETH, BNB, XRP, SOL, TRX, LINK, DOGE, ADA, AVAX, DOT, LTC, SUI, NEAR, ATOM, ZEC], sma_n: [50, 100, 200]}
+
+# Auswahl der Coins: grosse, liquide Coins mit Binance-USDT-Handel, keine Stablecoins, keine Boersen- oder Wrapped-Token.
+# Nicht nach "Potenzial" ausgewaehlt, weil das im Rueckblick nur Gewinner waere. Neuere Coins (z.B. SUI) kommen erst nach
+# 200 Tagen Historie in den Korb. Hyperliquid (HYPE) und Monero (XMR) fehlen: keine lange Binance-Historie bzw. dort nicht handelbar.

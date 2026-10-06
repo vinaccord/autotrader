@@ -142,18 +142,36 @@ def cache_path(cfg, kind, coin):
 
 
 def fetch_all(cfg, log=print):
+    """Laedt Preise und Funding je Coin. Scheitert ein Coin (Symbol existiert nicht, gesperrt), wird er uebersprungen."""
     start = ms(cfg["start"])
+    failed = []
     for coin in cfg["coins"]:
-        if cfg["source"] == "binance":
-            sym = f"{coin}USDT"
-            px = fetch_binance_klines(sym, start)
-            fu = fetch_binance_funding(sym, start)
-        else:
-            px = fetch_hl_candles(coin, start)
-            fu = fetch_hl_funding(coin, start)
+        try:
+            if cfg["source"] == "binance":
+                sym = f"{coin}USDT"
+                px = fetch_binance_klines(sym, start)
+                try:
+                    fu = fetch_binance_funding(sym, start)
+                except Exception as e:  # Funding ist fuer reine Trend-Profile nicht noetig
+                    fu = []
+                    log(f"{coin}: Funding nicht verfuegbar ({type(e).__name__})")
+            else:
+                px = fetch_hl_candles(coin, start)
+                fu = fetch_hl_funding(coin, start)
+            if not px:
+                raise ValueError("keine Kerzen")
+        except Exception as e:
+            failed.append(coin)
+            log(f"{coin}: uebersprungen ({type(e).__name__}: {e})")
+            continue
         save_rows(cache_path(cfg, "prices", coin), ["ts", "open", "high", "low", "close", "volume"], px)
         save_rows(cache_path(cfg, "funding", coin), ["ts", "rate"], fu)
-        log(f"{coin}: {len(px)} Tageskerzen, {len(fu)} Funding-Eintraege")
+        first = day_str(int(px[0][0]))
+        log(f"{coin}: {len(px)} Tageskerzen ab {first}, {len(fu)} Funding-Eintraege")
+    if failed:
+        log(f"Uebersprungen: {', '.join(failed)}")
+    if failed and len(failed) == len(cfg["coins"]):
+        raise SystemExit("Kein Coin konnte geladen werden.")
 
 
 def load_all(cfg):

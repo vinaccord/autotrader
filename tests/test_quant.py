@@ -372,3 +372,24 @@ class VariantTests(unittest.TestCase):
             res = variants.compare(cfg, 2.0, log=lines.append)
             self.assertEqual(set(res), {"a", "b"})
             self.assertTrue(any("Kosten x2" in x for x in lines))
+
+
+    def test_late_coin_joins_after_warmup_and_missing_cache_skipped(self):
+        import tempfile
+        from autotrader.quant import variants, data as d
+        with tempfile.TemporaryDirectory() as td:
+            dates, ohlc, _ = synth_market(900)
+            def write(c, ds):
+                rows = [[int(dt.datetime.fromisoformat(x).replace(tzinfo=dt.timezone.utc).timestamp() * 1000), *ohlc[x], 1.0] for x in ds]
+                d.save_rows(os.path.join(td, f"binance_prices_{c}.csv"), ["ts", "open", "high", "low", "close", "volume"], rows)
+            write("BTC", dates); write("ETH", dates); write("NEW", dates[600:])
+            cfg = {"data_dir": td, "source": "binance", "eval_start": dates[400], "costs": {"trend_bps": 10},
+                   "trend": {"vol_window": 30, "target_vol": 0.45, "max_lev": 1.0, "band": 0.1},
+                   "variants": {"a": {"coins": ["BTC", "ETH"], "sma_n": 200},
+                                "b": {"coins": ["BTC", "ETH", "NEW", "GONE"], "sma_n": 100}}}
+            lines = []
+            res = variants.compare(cfg, 1.0, log=lines.append)
+            self.assertTrue(any("GONE" in x for x in lines))
+            self.assertEqual(len(res["a"]), len(res["b"]))
+            ser = variants.coin_series(cfg, "NEW", cfg["variants"]["b"], 10, set())
+            self.assertGreater(ser[1], dates[600])  # Einlaufzeit
