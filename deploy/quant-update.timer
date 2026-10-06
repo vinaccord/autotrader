@@ -1,0 +1,9 @@
+[Unit]
+Description=autotrader: Code-Update taeglich um 00:50 UTC (vor dem Quant-Lauf)
+
+[Timer]
+OnCalendar=*-*-* 00:50:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=autotrader: Code aus GitHub holen
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/autotrader-src/deploy/update.sh
