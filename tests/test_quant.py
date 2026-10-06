@@ -393,3 +393,46 @@ class VariantTests(unittest.TestCase):
             self.assertEqual(len(res["a"]), len(res["b"]))
             ser = variants.coin_series(cfg, "NEW", cfg["variants"]["b"], 10, set())
             self.assertGreater(ser[1], dates[600])  # Einlaufzeit
+
+
+class SpillTests(unittest.TestCase):
+    def test_modes_weights(self):
+        from autotrader.quant import spill
+        trend = [0.01] * 4
+        cr = {"A": [0.0] * 4, "B": [0.0] * 4}
+        cf = {"A": [0, 0, 0, 0], "B": [0, 0, 0, 0]}  # beide Carry-Teile flat
+        idle = spill.combine(cr, cf, trend, 0.3, "idle")
+        full = spill.combine(cr, cf, trend, 0.3, "spill")
+        half = spill.combine(cr, cf, trend, 0.3, "spill_half")
+        tonly = spill.combine(cr, cf, trend, 0.3, "trend_only")
+        self.assertAlmostEqual(idle[0], 0.007)
+        self.assertAlmostEqual(full[0], 0.01)
+        self.assertAlmostEqual(half[0], 0.0085)
+        self.assertAlmostEqual(tonly[0], 0.01)
+        cf2 = {"A": [1] * 4, "B": [0] * 4}
+        cr2 = {"A": [0.001] * 4, "B": [0.0] * 4}
+        m = spill.combine(cr2, cf2, trend, 0.3, "spill")
+        self.assertAlmostEqual(m[0], 0.15 * 0.001 + (0.7 + 0.15) * 0.01)
+
+    def test_flags_exposed_and_run_end_to_end(self):
+        from autotrader.quant import spill
+        dates, ohlc, fund = synth_market(900)
+        r, info = carry_returns(dates, fund, ohlc, 14, 0.12, 0.04, 2, COSTS)
+        self.assertEqual(len(info["flags"]), len(dates))
+        self.assertEqual(sum(info["flags"]), info["days_in"])
+        import tempfile
+        from autotrader.quant import data as d
+        with tempfile.TemporaryDirectory() as td:
+            cfg = copy.deepcopy(QCFG)
+            cfg["coins"] = ["BTC"]
+            cfg["data_dir"] = td
+            cfg["allocator"]["fixed"] = {"carry": 0.3, "trend": 0.7}
+            dates, ohlc, fund = synth_market(1300)
+            rows = [[int(dt.datetime.fromisoformat(x).replace(tzinfo=dt.timezone.utc).timestamp() * 1000), *ohlc[x], 1.0] for x in dates]
+            d.save_rows(os.path.join(td, "binance_prices_BTC.csv"), ["ts", "open", "high", "low", "close", "volume"], rows)
+            frows = [[int(dt.datetime.fromisoformat(x).replace(tzinfo=dt.timezone.utc).timestamp() * 1000), fund[x]] for x in dates]
+            d.save_rows(os.path.join(td, "binance_funding_BTC.csv"), ["ts", "rate"], frows)
+            lines = []
+            out = spill.run(cfg, log=lines.append)
+            self.assertEqual(set(out), {"idle", "spill_half", "spill", "trend_only"})
+            self.assertTrue(any("Carry war an" in x for x in lines))

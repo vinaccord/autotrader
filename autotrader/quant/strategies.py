@@ -20,6 +20,7 @@ def carry_returns(dates, fund, ohlc, lookback, entry_apr, exit_apr, lev, costs):
     eff = lev / (lev + 1)
     round_trip = eff * (costs["spot_fee_bps"] + costs["perp_fee_bps"] + 2 * costs["slippage_bps"]) / 1e4
     rets = [0.0] * n
+    flags = [0] * n  # 1 an Tagen, an denen die Carry-Position gehalten wird
     pos, entries, liq, days_in = 0, 0, 0, 0
     last_apr = None
     for i in range(n):
@@ -42,8 +43,9 @@ def carry_returns(dates, fund, ohlc, lookback, entry_apr, exit_apr, lev, costs):
                 if ohlc[dates[i + 1]][1] / prev_close - 1 >= 0.9 / lev:
                     liq += 1
             rets[i + 1] = r
+            flags[i + 1] = new
         pos = new
-    return rets, {"entries": entries, "liq_flags": liq, "days_in": days_in, "position": pos, "trailing_apr": last_apr}
+    return rets, {"flags": flags, "entries": entries, "liq_flags": liq, "days_in": days_in, "position": pos, "trailing_apr": last_apr}
 
 
 def asset_returns(dates, ohlc):
