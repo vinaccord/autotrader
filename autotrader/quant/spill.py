@@ -41,6 +41,41 @@ def combine(carry_rets, carry_flags, trend_rets, w_carry, mode):
     return out
 
 
+def carry_parts(cfg, dates, ohlc, fund):
+    """Carry je Coin mit den Standardparametern: (rets, flags, positionen_nach_letztem_signal)."""
+    c = cfg["carry"]
+    p = c["default"]
+    cr, cf, pos = {}, {}, {}
+    for coin in cfg["coins"]:
+        r, info = carry_returns(dates, fund[coin], ohlc[coin], p["lookback"], p["entry_apr"], p["exit_apr"], c["lev"], cfg["costs"])
+        cr[coin], cf[coin], pos[coin] = r, info["flags"], info["position"]
+    return cr, cf, pos
+
+
+def carry_weight(cfg):
+    return cfg["allocator"]["fixed"]["carry"] if cfg["allocator"].get("fixed") else 0.3
+
+
+def spill_series(cfg, dates, ohlc, fund, res, mode="spill"):
+    """Renditen des Profils mit Spill, ausgerichtet auf res['dates']."""
+    cr, cf, _ = carry_parts(cfg, dates, ohlc, fund)
+    off = res["offset"]
+    return combine({k: v[off:] for k, v in cr.items()}, {k: v[off:] for k, v in cf.items()}, res["trend"], carry_weight(cfg), mode)
+
+
+def effective_weights(cfg, dates, ohlc, fund, mode="spill"):
+    """Gewichte nach dem letzten Signal: aktive Carry-Teile bleiben Carry, flache gehen (je nach Modus) an den Trend."""
+    _, _, pos = carry_parts(cfg, dates, ohlc, fund)
+    w = carry_weight(cfg)
+    slice_w = w / len(pos)
+    active = [c for c, v in pos.items() if v]
+    flat = [c for c, v in pos.items() if not v]
+    share = {"idle": 0.0, "spill_half": 0.5, "spill": 1.0}[mode]
+    carry = slice_w * len(active)
+    trend = (1 - w) + slice_w * len(flat) * share
+    return {"trend": trend, "carry": carry, "cash": 1 - trend - carry, "carry_aktiv": active, "carry_flat": flat}
+
+
 def run(cfg, log=print):
     dates, ohlc, fund = data.load_all(cfg)
     res = pipeline.run(cfg, dates, ohlc, fund)

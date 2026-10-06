@@ -48,6 +48,15 @@ def build_report(main, core, paper_start, prev_state, today=None):
         out.append(f"{name} (Stand {sig['as_of']}), Gewichte {sig['weights']}")
         out.append("  Trend: " + ", ".join(f"{c} {e:.2f}" for c, e in exp.items()))
         out.append("  Carry: " + ", ".join(f"{c} {'IN' if car[c] else 'flat'} (Funding {apr[c] * 100:.1f}% p.a.)" if apr[c] is not None else f"{c} {'IN' if car[c] else 'flat'}" for c in car))
+        if key == "main":
+            try:
+                from . import spill
+
+                ew = spill.effective_weights(p["cfg"], p["dates"], p["ohlc"], p["fund"], "spill")
+                p["spill_w"] = ew
+                out.append(f"  Effektiv mit Spill: Trend {ew['trend'] * 100:.0f}%, Carry {ew['carry'] * 100:.0f}% (aktiv: {', '.join(ew['carry_aktiv']) or '-'}; flat: {', '.join(ew['carry_flat']) or '-'}), Cash {ew['cash'] * 100:.0f}%")
+            except Exception as e:
+                warns.append(f"Spill-Gewichte nicht berechenbar ({type(e).__name__})")
         old = (prev_state or {}).get(key)
         if old:
             for c, e in exp.items():
@@ -67,8 +76,16 @@ def build_report(main, core, paper_start, prev_state, today=None):
     if idx:
         i0 = idx[0]
         n = len(idx)
+        spill_rets = None
+        try:
+            from . import spill
+
+            spill_rets = spill.spill_series(main["cfg"], main["dates"], main["ohlc"], main["fund"], r, "spill")
+        except Exception as e:
+            warns.append(f"Spill-Ergebnis nicht berechenbar ({type(e).__name__})")
         rows = [
             ("Hauptprofil", r["combined"]),
+            ("Haupt+Spill", spill_rets or []),
             ("Trend allein", r["trend"]),
             ("Buy-and-Hold", r["buyhold"]),
             ("Kernprofil", core["res"]["combined"][-n:] if len(core["res"]["combined"]) >= n else []),
@@ -77,7 +94,7 @@ def build_report(main, core, paper_start, prev_state, today=None):
         for label, series in rows:
             if series:
                 s7 = _compound(series[-7:])
-                out.append(f"  {label:<14} seit Start {pct(_compound(series[i0:] if label != 'Kernprofil' else series))}, letzte 7 Tage {pct(s7)}")
+                out.append(f"  {label:<14} seit Start {pct(_compound(series[i0:] if label not in ('Kernprofil',) else series))}, letzte 7 Tage {pct(s7)}")
         dd = stats(r["combined"][i0:])["max_dd"]
         out.append(f"  Max. Verlust Hauptprofil seit Start: {pct(dd)}")
         if dd < -0.30:

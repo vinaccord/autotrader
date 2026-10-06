@@ -249,6 +249,8 @@ class ReportTests(unittest.TestCase):
         text, state, warns = report.build_report(m, c, start, None, today=today)
         self.assertIn("DATEN VERALTET", warns[0])
         self.assertIn("seit " + start, text)
+        self.assertIn("Effektiv mit Spill", text)
+        self.assertIn("Haupt+Spill", text)
         self.assertIn("main", state)
         prev = copy.deepcopy(state)
         prev["main"]["trend"]["BTC"] = round(1 - state["main"]["trend"]["BTC"], 2) if state["main"]["trend"]["BTC"] > 0.5 else 1.0
