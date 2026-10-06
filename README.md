@@ -34,6 +34,8 @@ tail -n 80 /opt/autotrader/data/quant/daily.log
 
 `setup.sh` legt einen eigenen Benutzer an und aktiviert einen systemd-Timer, der taeglich um 01:05 UTC Daten holt, den Backtest rechnet und das Signal ins Log schreibt. Die Skripte sind nicht auf einem echten Server getestet.
 
+Makro (Beobachtung): `python -m autotrader.quant.macro --config quant_40.yaml fetch` laedt Fear & Greed und loggt GDELT-Tonalitaet, `... backtest` rechnet zwei feste Regeln gegen den Trend-Teil. Positionen aendert das nicht.
+
 Tests: `python -m unittest discover -s tests` (57 Tests, laufen ohne Netzwerk).
 
 ## DEX-Paper-Agent (Experiment)

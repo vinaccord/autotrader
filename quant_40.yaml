@@ -58,3 +58,10 @@ allocator:
   fixed:
     carry: 0.3
     trend: 0.7
+macro:
+  queries:
+    fed: ("Federal Reserve" OR "interest rates")
+    zoelle: (tariffs OR sanctions)
+    oel: ("oil price" OR OPEC)
+    krypto: (bitcoin OR cryptocurrency)
+    krieg: (war OR military conflict)

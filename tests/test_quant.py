@@ -257,3 +257,58 @@ class ReportTests(unittest.TestCase):
         text2, _, warns2 = report.build_report(m2, c2, start, prev, today=dt.date.fromisoformat(dates[-1]))
         self.assertTrue(any("Exposure" in w for w in warns2))
         self.assertNotIn("VERALTET", " ".join(warns2))
+
+
+class MacroTests(unittest.TestCase):
+    def test_parse_fng_and_gdelt(self):
+        from autotrader.quant import macro
+        fng = macro.parse_fng({"data": [{"value": "47", "timestamp": "1700000000"}, {"value": "80", "timestamp": "1700086400"}]})
+        self.assertEqual(fng, {"2023-11-14": 47.0, "2023-11-15": 80.0})
+        tone = macro.parse_gdelt_tone({"timeline": [{"series": "Average Tone", "data": [{"date": "x", "value": -2.0}, {"date": "y", "value": -4.0}, {"date": "z"}]}]})
+        self.assertAlmostEqual(tone, -3.0)
+        self.assertIsNone(macro.parse_gdelt_tone({}))
+
+    def test_rule_is_lagged_and_scales_returns(self):
+        from autotrader.quant import macro
+        dates = make_dates(6)
+        fng = {dates[0]: 90.0}  # extreme Gier nur am Tag 0
+        rets = [0.01] * 6
+        out = macro.apply_rule("greed_cut", dates, fng, rets, cost_bps=0)
+        self.assertEqual(out[0], 0.01)                 # Tag 0: kein Wert von gestern -> voll
+        self.assertAlmostEqual(out[1], 0.005)           # Tag 1: Wert von Tag 0 (Gier) -> halbe Position
+        self.assertEqual(out[2], 0.01)                  # danach wieder voll
+        c = macro.apply_rule("greed_cut", dates, fng, rets, cost_bps=10)
+        self.assertLess(c[1], out[1])                   # Wechselkosten
+
+    def test_rule_causal(self):
+        from autotrader.quant import macro
+        dates = make_dates(10)
+        base = {d: 50.0 for d in dates}
+        a = macro.apply_rule("greed_cut", dates, base, [0.01] * 10)
+        fut = dict(base)
+        fut[dates[8]] = 99.0
+        b = macro.apply_rule("greed_cut", dates, fut, [0.01] * 10)
+        self.assertEqual(a[:9], b[:9])
+
+    def test_fetch_and_log_with_fake_session(self):
+        import tempfile
+        from autotrader.quant import macro
+
+        class R:
+            def __init__(s, j): s.j = j
+            def raise_for_status(s): pass
+            def json(s): return s.j
+
+        class S:
+            def get(s, url, params=None, timeout=None):
+                if "alternative" in url:
+                    return R({"data": [{"value": "30", "timestamp": "1700000000"}]})
+                return R({"timeline": [{"data": [{"value": -1.0}]}]})
+
+        with tempfile.TemporaryDirectory() as td:
+            cfg = {"data_dir": td, "macro": {"queries": {"fed": "x"}}}
+            lines = []
+            macro.cmd_fetch(cfg, log=lines.append, session=S())
+            self.assertEqual(macro.load_fng(cfg), {"2023-11-14": 30.0})
+            self.assertIn("Fear & Greed", macro.latest_line(cfg))
+            self.assertFalse(macro.append_tone(cfg, dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d"), {"fed": -1.0}))

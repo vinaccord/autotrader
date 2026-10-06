@@ -84,6 +84,15 @@ def build_report(main, core, paper_start, prev_state, today=None):
             warns.append(f"Verlust Hauptprofil {pct(dd)} seit Papierstart (Toleranz 40%)")
     else:
         out.append(f"Papier-Ergebnis: noch keine Tage seit {paper_start}.")
+    try:
+        from . import macro
+
+        line = macro.latest_line(main["cfg"])
+        if line:
+            out.append("")
+            out.append(line)
+    except Exception:  # Makro ist optional und darf den Bericht nie verhindern
+        pass
     text = f"Autotrader Tagesbericht {today}\n" + ("WARNUNGEN:\n  - " + "\n  - ".join(warns) + "\n" if warns else "Keine Warnungen.\n") + "\n" + "\n".join(out) + "\n"
     return text, state, warns
 

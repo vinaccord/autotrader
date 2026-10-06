@@ -15,6 +15,8 @@ mkdir -p /opt/autotrader/data/quant
   $PY -m autotrader.quant.cli --config quant_40.yaml signal | tee -a "$SIG"
   echo "--- Profil Kern (Vergleich) ---"
   $PY -m autotrader.quant.cli --config quant.yaml signal | tee -a "$SIG"
+  echo "--- Makro (Beobachtung) ---"
+  $PY -m autotrader.quant.macro --config quant_40.yaml fetch || echo "Makro-Abruf fehlgeschlagen (nicht kritisch)"
   echo "--- Tagesbericht ---"
   $PY -m autotrader.quant.report --main quant_40.yaml --core quant.yaml --paper-start 2026-10-06
 } >> "$LOG" 2>&1
