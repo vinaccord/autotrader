@@ -51,8 +51,14 @@ def asset_returns(dates, ohlc):
     return [0.0] + [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes))]
 
 
-def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cost_bps):
+def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cost_bps, crash=None, event_days=None):
     """Long/Flat auf SMA-Filter, Positionsgroesse per Ziel-Volatilitaet. Nur Long, Hebel hoechstens max_lev.
+
+    sma_n: eine Laenge (int) oder eine Liste. Bei einer Liste ist die Position der Anteil der Laengen, bei denen der Kurs
+    darueber liegt (Mix aus mehreren Durchschnitten, weniger abhaengig von einem einzelnen Parameter).
+    crash: {"days": n, "pct": x, "mult": m}. Faellt der Kurs in n Tagen um mindestens x, wird die Ziel-Position mit m multipliziert.
+    event_days: Menge von Datums-Strings. Fuer diese Tage wird die Position mit crash["mult"] (oder 0.5) multipliziert;
+    der Kalender ist vorab bekannt, es wird nichts aus der Zukunft abgeleitet.
 
     Gibt (rets, last_target) zurueck. last_target ist die Zielposition nach dem Signal des letzten Tages.
     """
@@ -61,14 +67,21 @@ def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cos
     ar = asset_returns(dates, ohlc)
     out = [0.0] * n
     pos = 0.0
-    warm = max(sma_n, vol_window + 1)
+    lens = list(sma_n) if isinstance(sma_n, (list, tuple)) else [sma_n]
+    warm = max(max(lens), vol_window + 1)
+    ev_mult = (crash or {}).get("event_mult", 0.5)
     for i in range(n):
         target = 0.0
         if i + 1 >= warm:
-            is_long = closes[i] > mean(closes[i + 1 - sma_n : i + 1])
+            frac = sum(1 for L in lens if closes[i] > mean(closes[i + 1 - L : i + 1])) / len(lens)
             vol = stdev(ar[i + 1 - vol_window : i + 1]) * math.sqrt(365)
-            if is_long and vol > 0:
-                target = min(max_lev, target_vol / vol)
+            if frac > 0 and vol > 0:
+                target = frac * min(max_lev, target_vol / vol)
+            if target > 0 and crash and "days" in crash and i >= crash["days"]:
+                if closes[i] / closes[i - crash["days"]] - 1 <= -crash["pct"]:
+                    target *= crash["mult"]
+            if target > 0 and event_days and i < n - 1 and dates[i + 1] in event_days:
+                target *= ev_mult
         if target == 0.0 or abs(target - pos) > band:
             new = target
         else:

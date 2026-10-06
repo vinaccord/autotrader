@@ -326,3 +326,49 @@ class MacroTests(unittest.TestCase):
             d.save_rows(macro.tone_path(cfg), ["date", "a", "b"], data_rows)
             self.assertTrue(macro.append_tone(cfg, "2026-10-06", {"a": -1.0, "b": None}))
             self.assertEqual(d.load_rows(macro.tone_path(cfg)), [["2026-10-06", "-1.000", ""]])
+
+
+class VariantTests(unittest.TestCase):
+    def test_ensemble_scales_and_int_equals_list_of_one(self):
+        dates, ohlc, _ = synth_market(900)
+        kw = dict(vol_window=30, target_vol=0.45, max_lev=1.0, band=0.0, cost_bps=0)
+        a, _ = trend_returns(dates, ohlc, 100, **kw)
+        b, _ = trend_returns(dates, ohlc, [100], **kw)
+        self.assertEqual(a, b)
+        m, _ = trend_returns(dates, ohlc, [50, 100, 200], **kw)
+        self.assertEqual(len(m), len(a))
+        self.assertTrue(any(0 < abs(x) for x in m))
+
+    def test_crash_and_event_reduce_exposure_causally(self):
+        dates = make_dates(400)
+        rets = [0.003] * 300 + [-0.04] * 5 + [0.003] * 95
+        ohlc = make_ohlc(dates, rets)
+        kw = dict(vol_window=30, target_vol=5.0, max_lev=1.0, band=0.0, cost_bps=0)
+        plain, _ = trend_returns(dates, ohlc, 100, **kw)
+        cut, _ = trend_returns(dates, ohlc, 100, crash={"days": 3, "pct": 0.08, "mult": 0.5}, **kw)
+        self.assertLess(sum(abs(x) for x in cut[300:320]), sum(abs(x) for x in plain[300:320]))
+        self.assertEqual(plain[:303], cut[:303])        # vor dem Crash identisch -> keine Zukunft
+        ev = {dates[350]}
+        e, _ = trend_returns(dates, ohlc, 100, event_days=ev, **kw)
+        self.assertAlmostEqual(e[350], plain[350] * 0.5)
+        self.assertEqual(e[349], plain[349])
+
+    def test_event_set_and_compare_runs_on_files(self):
+        import tempfile
+        from autotrader.quant import variants, data as d
+        s = variants.event_set(["2024-01-31"])
+        self.assertEqual(s, {"2024-01-31", "2024-02-01"})
+        with tempfile.TemporaryDirectory() as td:
+            dates, ohlc, _ = synth_market(900)
+            for c in ("BTC", "ETH"):
+                rows = [[int(dt.datetime.fromisoformat(x).replace(tzinfo=dt.timezone.utc).timestamp() * 1000), *ohlc[x], 1.0] for x in dates]
+                d.save_rows(os.path.join(td, f"binance_prices_{c}.csv"), ["ts", "open", "high", "low", "close", "volume"], rows)
+            cfg = {"data_dir": td, "source": "binance", "eval_start": dates[400], "costs": {"trend_bps": 10},
+                   "trend": {"vol_window": 30, "target_vol": 0.45, "max_lev": 1.0, "band": 0.1},
+                   "events": {"fomc": [dates[500]]},
+                   "variants": {"a": {"coins": ["BTC", "ETH"], "sma_n": 200},
+                                "b": {"coins": ["BTC", "ETH"], "sma_n": [50, 100, 200], "fomc": 0.5, "crash": {"days": 7, "pct": 0.15, "mult": 0.5}}}}
+            lines = []
+            res = variants.compare(cfg, 2.0, log=lines.append)
+            self.assertEqual(set(res), {"a", "b"})
+            self.assertTrue(any("Kosten x2" in x for x in lines))

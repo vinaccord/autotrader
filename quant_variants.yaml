@@ -1,0 +1,26 @@
+# Trend-Varianten im Vergleich (feste Parameter). Eigener Daten-Ordner, damit die BTC/ETH-Historie der anderen Profile unberuehrt bleibt.
+data_dir: data/quant_multi
+source: binance
+coins: [BTC, ETH, SOL, BNB, XRP]
+start: "2020-09-01"
+eval_start: "2021-06-01"
+
+costs: {spot_fee_bps: 7, perp_fee_bps: 4.5, slippage_bps: 2, trend_bps: 10}
+
+trend: {vol_window: 30, target_vol: 0.45, max_lev: 1.0, band: 0.10}
+
+# FOMC-Entscheidungstage (federalreserve.gov/monetarypolicy/fomccalendars.htm, abgerufen 6.10.2026)
+events:
+  fomc: [2021-01-27, 2021-03-17, 2021-04-28, 2021-06-16, 2021-07-28, 2021-09-22, 2021-11-03, 2021-12-15,
+         2022-01-26, 2022-03-16, 2022-05-04, 2022-06-15, 2022-07-27, 2022-09-21, 2022-11-02, 2022-12-14,
+         2023-02-01, 2023-03-22, 2023-05-03, 2023-06-14, 2023-07-26, 2023-09-20, 2023-11-01, 2023-12-13,
+         2024-01-31, 2024-03-20, 2024-05-01, 2024-06-12, 2024-07-31, 2024-09-18, 2024-11-07, 2024-12-18,
+         2025-01-29, 2025-03-19, 2025-05-07, 2025-06-18, 2025-07-30, 2025-09-17, 2025-10-29, 2025-12-10,
+         2026-01-28, 2026-03-18, 2026-04-29, 2026-06-17, 2026-07-29, 2026-09-16, 2026-10-28, 2026-12-09]
+
+variants:                  # die erste Variante ist der Vergleichsmassstab
+  basis_sma200:    {coins: [BTC, ETH], sma_n: 200}
+  mix_50_100_200:  {coins: [BTC, ETH], sma_n: [50, 100, 200]}
+  mix_crash:       {coins: [BTC, ETH], sma_n: [50, 100, 200], crash: {days: 7, pct: 0.15, mult: 0.5}}
+  mix_fomc:        {coins: [BTC, ETH], sma_n: [50, 100, 200], fomc: 0.5}
+  mix_5coins:      {coins: [BTC, ETH, SOL, BNB, XRP], sma_n: [50, 100, 200]}
