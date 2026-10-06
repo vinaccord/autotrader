@@ -231,3 +231,29 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(len({str(p) for _, p in res["trend_chosen"]}), 1)
         exp = [0.3 * a + 0.7 * b for a, b in zip(res["carry"], res["trend"])]
         self.assertEqual(exp, res["combined"])
+
+
+class ReportTests(unittest.TestCase):
+    def _pack(self, cfg, dates, ohlc, fund):
+        return {"cfg": cfg, "dates": dates, "ohlc": {"BTC": ohlc}, "fund": {"BTC": fund}}
+
+    def test_report_runs_flags_stale_and_changes(self):
+        from autotrader.quant import report
+        dates, ohlc, fund = synth_market(1300)
+        cfg = copy.deepcopy(QCFG)
+        cfg["coins"] = ["BTC"]
+        m = self._pack(cfg, dates, ohlc, fund)
+        c = self._pack(cfg, dates, ohlc, fund)
+        start = dates[-10]
+        today = dt.date.fromisoformat(dates[-1]) + dt.timedelta(days=5)
+        text, state, warns = report.build_report(m, c, start, None, today=today)
+        self.assertIn("DATEN VERALTET", warns[0])
+        self.assertIn("seit " + start, text)
+        self.assertIn("main", state)
+        prev = copy.deepcopy(state)
+        prev["main"]["trend"]["BTC"] = round(1 - state["main"]["trend"]["BTC"], 2) if state["main"]["trend"]["BTC"] > 0.5 else 1.0
+        m2 = self._pack(cfg, dates, ohlc, fund)
+        c2 = self._pack(cfg, dates, ohlc, fund)
+        text2, _, warns2 = report.build_report(m2, c2, start, prev, today=dt.date.fromisoformat(dates[-1]))
+        self.assertTrue(any("Exposure" in w for w in warns2))
+        self.assertNotIn("VERALTET", " ".join(warns2))
