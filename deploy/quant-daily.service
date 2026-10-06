@@ -1,0 +1,14 @@
+[Unit]
+Description=autotrader quant: taeglicher Daten-, Backtest- und Signal-Lauf
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=autotrader
+WorkingDirectory=/opt/autotrader
+ExecStart=/bin/bash /opt/autotrader/deploy/quant_daily.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/autotrader/data

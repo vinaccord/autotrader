@@ -1,0 +1,9 @@
+[Unit]
+Description=autotrader quant taeglich um 01:05 UTC
+
+[Timer]
+OnCalendar=*-*-* 01:05:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

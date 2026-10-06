@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Taeglicher Lauf: Daten holen, Signale beider Profile berechnen, Ergebnis ins Log schreiben.
+# quant_40.yaml = Hauptprofil (Trend 70%, Carry 30%). quant.yaml = Vergleichsprofil (adaptiv, risikoarm).
+set -euo pipefail
+cd /opt/autotrader
+PY=/opt/autotrader/venv/bin/python
+LOG=/opt/autotrader/data/quant/daily.log
+SIG=/opt/autotrader/data/quant/signals.log
+mkdir -p /opt/autotrader/data/quant
+{
+  echo "=== $(date -u +%FT%TZ) ==="
+  $PY -m autotrader.quant.cli --config quant_40.yaml fetch
+  echo "--- Profil 40 (Haupt) ---"
+  $PY -m autotrader.quant.cli --config quant_40.yaml backtest
+  $PY -m autotrader.quant.cli --config quant_40.yaml signal | tee -a "$SIG"
+  echo "--- Profil Kern (Vergleich) ---"
+  $PY -m autotrader.quant.cli --config quant.yaml signal | tee -a "$SIG"
+} >> "$LOG" 2>&1

@@ -1,0 +1,59 @@
+# Profil 40% mit verdoppelten Kosten (Stresstest)
+data_dir: data/quant
+source: binance
+coins:
+- BTC
+- ETH
+start: '2019-12-01'
+costs:
+  spot_fee_bps: 14
+  perp_fee_bps: 9.0
+  slippage_bps: 4
+  trend_bps: 20
+carry:
+  lev: 2
+  default:
+    lookback: 14
+    entry_apr: 0.12
+    exit_apr: 0.04
+  grid:
+    lookback:
+    - 7
+    - 14
+    - 30
+    entry_apr:
+    - 0.08
+    - 0.12
+    - 0.18
+    exit_apr:
+    - 0.0
+    - 0.04
+trend:
+  max_lev: 1.0
+  band: 0.1
+  default:
+    sma_n: 200
+    vol_window: 30
+    target_vol: 0.45
+  grid:
+    sma_n:
+    - 200
+    vol_window:
+    - 30
+    target_vol:
+    - 0.45
+  adapt: false
+walkforward:
+  train_days: 365
+  step_days: 30
+  switch_cost_bps: 5
+allocator:
+  vol_window: 90
+  perf_window: 180
+  rebalance: 30
+  tilt: 0.5
+  w_min: 0.1
+  w_max: 0.9
+  fixed:
+    carry: 0.3
+    trend: 0.7

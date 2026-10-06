@@ -1,0 +1,19 @@
+[Unit]
+Description=autotrader (Paper-Trading-Agent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=autotrader
+WorkingDirectory=/opt/autotrader
+EnvironmentFile=-/opt/autotrader/.env
+ExecStart=/opt/autotrader/venv/bin/python -m autotrader.cli --config /opt/autotrader/config.yaml run
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/autotrader/data
+
+[Install]
+WantedBy=multi-user.target

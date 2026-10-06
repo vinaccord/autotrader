@@ -1,0 +1,42 @@
+# Quant-Konfiguration: Funding-Carry plus volatilitaetsgesteuerte Trendfolge.
+# Alle Kosten sind Annahmen und muessen mit den echten Gebuehren deiner Plattform abgeglichen werden.
+data_dir: data/quant
+source: binance            # binance (lange Historie, Funding als Proxy) | hyperliquid (Zielplattform, kurze Historie)
+coins: [BTC, ETH]
+start: "2019-12-01"        # Binance-ETH-Perp existiert seit Ende 2019; fuer hyperliquid z.B. 2023-06-01
+
+costs:                     # Basispunkte (1 bps = 0.01%)
+  spot_fee_bps: 7          # Annahme Spot-Taker; vor Nutzung mit der aktuellen Gebuehrentabelle pruefen
+  perp_fee_bps: 4.5        # Annahme Perp-Taker; dito
+  slippage_bps: 2
+  trend_bps: 10            # Gebuehr plus Slippage pro Umschichtung Trendfolge
+
+carry:
+  lev: 2                   # Hebel des Short-Beins. Hoeher erhoeht Liquidationsrisiko stark
+  default: {lookback: 14, entry_apr: 0.12, exit_apr: 0.04}
+  grid:
+    lookback: [7, 14, 30]
+    entry_apr: [0.08, 0.12, 0.18]
+    exit_apr: [0.0, 0.04]
+
+trend:
+  max_lev: 1.0             # nur Long, kein Hebel
+  band: 0.10               # Umschichtung erst ab 10% Positionsaenderung
+  default: {sma_n: 200, vol_window: 30, target_vol: 0.25}
+  grid:
+    sma_n: [100, 150, 200]
+    vol_window: [20, 40]
+    target_vol: [0.20, 0.30]
+
+walkforward:
+  train_days: 365          # Lernfenster
+  step_days: 30            # alle 30 Tage neu waehlen
+  switch_cost_bps: 5
+
+allocator:
+  vol_window: 90
+  perf_window: 180
+  rebalance: 30
+  tilt: 0.5
+  w_min: 0.1
+  w_max: 0.9
