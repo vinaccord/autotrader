@@ -308,7 +308,21 @@ class MacroTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             cfg = {"data_dir": td, "macro": {"queries": {"fed": "x"}}}
             lines = []
-            macro.cmd_fetch(cfg, log=lines.append, session=S(), pause=0)
+            macro.cmd_fetch(cfg, log=lines.append, session=S(), pause=0, retry_wait=0)
             self.assertEqual(macro.load_fng(cfg), {"2023-11-14": 30.0})
             self.assertIn("Fear & Greed", macro.latest_line(cfg))
             self.assertFalse(macro.append_tone(cfg, dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d"), {"fed": -1.0}))
+
+
+    def test_empty_day_is_replaced_and_all_none_not_written(self):
+        import tempfile
+        from autotrader.quant import macro
+        with tempfile.TemporaryDirectory() as td:
+            cfg = {"data_dir": td}
+            self.assertFalse(macro.append_tone(cfg, "2026-10-06", {"a": None, "b": None}))
+            self.assertFalse(os.path.exists(macro.tone_path(cfg)))
+            data_rows = [["2026-10-06", "", ""]]
+            from autotrader.quant import data as d
+            d.save_rows(macro.tone_path(cfg), ["date", "a", "b"], data_rows)
+            self.assertTrue(macro.append_tone(cfg, "2026-10-06", {"a": -1.0, "b": None}))
+            self.assertEqual(d.load_rows(macro.tone_path(cfg)), [["2026-10-06", "-1.000", ""]])

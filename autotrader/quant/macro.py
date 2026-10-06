@@ -84,7 +84,10 @@ def append_tone(cfg, today, tones):
     p = tone_path(cfg)
     names = list(tones)
     header = ["date"] + names
+    if all(v is None for v in tones.values()):
+        return False
     rows = data.load_rows(p) if os.path.exists(p) else []
+    rows = [r for r in rows if not (r[0] == today and not any(x for x in r[1:]))]  # leere Zeile von misslungenem Abruf ersetzen
     if any(r[0] == today for r in rows):
         return False
     rows.append([today] + ["" if tones[n] is None else f"{tones[n]:.3f}" for n in names])
@@ -142,7 +145,7 @@ def cmd_backtest(cfg, log=print):
     log("\nHinweis: Zwei feste Regeln, kein Parameter-Suchlauf. Ein Vorteil ueber einen Zyklus ist ein Indiz, kein Beleg. Positionen werden nicht veraendert.")
 
 
-def cmd_fetch(cfg, log=print, session=None, pause=6.0):
+def cmd_fetch(cfg, log=print, session=None, pause=12.0, retry_wait=30.0):
     fng = fetch_fng(session)
     data.save_rows(fng_path(cfg), ["date", "value"], sorted(fng.items()))
     log(f"Fear & Greed: {len(fng)} Tage ({min(fng)} bis {max(fng)})")
@@ -152,7 +155,13 @@ def cmd_fetch(cfg, log=print, session=None, pause=6.0):
         if k:
             time.sleep(pause)  # GDELT bittet um hoechstens eine Anfrage alle paar Sekunden
         try:
-            tones[name] = fetch_gdelt_tone(q, session)
+            try:
+                tones[name] = fetch_gdelt_tone(q, session)
+            except requests.HTTPError as e:
+                if getattr(e.response, "status_code", None) != 429:
+                    raise
+                time.sleep(retry_wait)
+                tones[name] = fetch_gdelt_tone(q, session)
             if tones[name] is None:
                 log(f"GDELT {name}: leere Antwort")
         except (requests.RequestException, ValueError) as e:
