@@ -11,7 +11,7 @@ Annahmen und Grenzen:
 import argparse
 import datetime as dt
 import os
-import urllib.parse
+import time
 
 import requests
 import yaml
@@ -142,18 +142,23 @@ def cmd_backtest(cfg, log=print):
     log("\nHinweis: Zwei feste Regeln, kein Parameter-Suchlauf. Ein Vorteil ueber einen Zyklus ist ein Indiz, kein Beleg. Positionen werden nicht veraendert.")
 
 
-def cmd_fetch(cfg, log=print, session=None):
+def cmd_fetch(cfg, log=print, session=None, pause=6.0):
     fng = fetch_fng(session)
     data.save_rows(fng_path(cfg), ["date", "value"], sorted(fng.items()))
     log(f"Fear & Greed: {len(fng)} Tage ({min(fng)} bis {max(fng)})")
     today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
     tones = {}
-    for name, q in (cfg.get("macro", {}).get("queries") or {}).items():
+    for k, (name, q) in enumerate((cfg.get("macro", {}).get("queries") or {}).items()):
+        if k:
+            time.sleep(pause)  # GDELT bittet um hoechstens eine Anfrage alle paar Sekunden
         try:
             tones[name] = fetch_gdelt_tone(q, session)
+            if tones[name] is None:
+                log(f"GDELT {name}: leere Antwort")
         except (requests.RequestException, ValueError) as e:
             tones[name] = None
-            log(f"GDELT {name}: Fehler {type(e).__name__}")
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            log(f"GDELT {name}: Fehler {type(e).__name__} {code or ''}".rstrip())
     if tones:
         added = append_tone(cfg, today, tones)
         log(f"GDELT-Tonalitaet {today}: " + ", ".join(f"{k} {v:.2f}" if v is not None else f"{k} -" for k, v in tones.items()) + ("" if added else " (Tag schon vorhanden)"))

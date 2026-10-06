@@ -308,7 +308,7 @@ class MacroTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             cfg = {"data_dir": td, "macro": {"queries": {"fed": "x"}}}
             lines = []
-            macro.cmd_fetch(cfg, log=lines.append, session=S())
+            macro.cmd_fetch(cfg, log=lines.append, session=S(), pause=0)
             self.assertEqual(macro.load_fng(cfg), {"2023-11-14": 30.0})
             self.assertIn("Fear & Greed", macro.latest_line(cfg))
             self.assertFalse(macro.append_tone(cfg, dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d"), {"fed": -1.0}))
