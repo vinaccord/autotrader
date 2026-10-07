@@ -5,6 +5,8 @@ Zwei Teile, nur Simulation, kein echtes Geld, keine Wallet-Schluessel im Paket.
 1. **quant (empfohlen):** Funding-Carry plus volatilitaetsgesteuerte Trendfolge auf BTC und ETH, Walk-Forward-Lernen, adaptiver Allokator, taeglicher Server-Job.
 2. **DEX-Paper-Agent (Experiment, nicht empfohlen):** Altcoin-Agent auf DEX-Daten mit Risiko-Limits, Sicherheitscheck und Strategie-Turnier. Hintergrund in `docs/STRATEGIE.md`.
 
+Fuer die naechste Session: zuerst `docs/HANDOFF.md` lesen.
+
 Lies zuerst `docs/STRATEGIE.md`: Recherche, Annahmen, Grenzen und Go-Live-Kriterien.
 
 ## quant: erster Lauf (auf deinem Rechner oder Server)
