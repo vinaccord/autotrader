@@ -34,8 +34,8 @@ def print_summary(res):
     print(
         "\nHinweise: Ergebnisse sind ein Backtest mit Annahmen zu Kosten und Ausfuehrung. Je mehr Varianten getestet wurden,"
         "\nje eher ist ein gutes Ergebnis Zufall. Nur Out-of-Sample-Zahlen zaehlen."
-        "\nCarry-Modell ignoriert Basis-Schwankungen zwischen Spot und Perp, Liquidationen des Short-Beins, Plattformausfall und Kapitalkosten"
-        "\ndes Transfers. Ein sehr hoher Carry-Sharpe ist darum ein Warnsignal und kein Beleg."
+        "\nCarry-Modell ignoriert Basis-Schwankungen zwischen Spot und Perp, Plattformausfall und Kapitalkosten des Transfers"
+        "\n(Margin-Ausgleich und Liquidation des Short-Beins sind grob abgebildet). Ein sehr hoher Carry-Sharpe ist darum ein Warnsignal und kein Beleg."
     )
 
 
