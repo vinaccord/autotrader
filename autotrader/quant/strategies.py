@@ -8,10 +8,13 @@ import math
 from .metrics import mean, stdev
 
 
-def carry_returns(dates, fund, ohlc, lookback, entry_apr, exit_apr, lev, costs):
+def carry_returns(dates, fund, ohlc, lookback, entry_apr, exit_apr, lev, costs, entry_day_frac=1.0):
     """Delta-neutraler Funding-Carry: Spot long, Perp short, mit Hysterese.
 
     Rendite pro Tag = eff * Funding des Tages, eff = lev/(lev+1) (Kapital teilt sich in Spot-Bein und Perp-Margin).
+    entry_day_frac: Anteil des Funding-Tages, den der Einstiegstag bekommt (Standard 1.0 = Modell wie bisher). Der echte Job laeuft
+    rund 65 Minuten nach 00:00 UTC und verpasst die erste Zahlung: Binance (3 Zahlungen pro Tag) 2/3, Hyperliquid (stuendlich) 23/24.
+
     Gibt (rets, info) zurueck. info["position"] ist der Zielzustand nach dem Signal des letzten Tages (fuer Live-Signale).
 
     Margin-Pflege (seit 7.10.): Referenzpreis ref = Schlusskurs bei Eintritt bzw. beim letzten Margin-Ausgleich. Bewegt sich der
@@ -45,7 +48,7 @@ def carry_returns(dates, fund, ohlc, lookback, entry_apr, exit_apr, lev, costs):
                 if new == 1:
                     ref = ohlc[dates[i]][3]
             if new == 1:
-                r += eff * fund.get(dates[i + 1], 0.0)
+                r += eff * fund.get(dates[i + 1], 0.0) * (entry_day_frac if pos == 0 else 1.0)
                 days_in += 1
                 if ohlc[dates[i + 1]][1] / ref - 1 >= 0.9 / lev:
                     liq += 1

@@ -7,7 +7,7 @@ Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst 
 ## 0. Einstieg (Stand 7.10.2026, 13:30, Commit nach 25ba9f3)
 
 **Kurzstand**
-- Phase 0 erledigt, Phase 1 bis auf Live-Teile erledigt (Details am Ende von Abschnitt 8), Phase 2 erledigt (negativ). 117 Tests (5 davon nur mit ssh-keygen).
+- Phase 0 erledigt, Phase 1 bis auf Live-Teile erledigt (Details am Ende von Abschnitt 8), Phase 2 erledigt (negativ). 122 Tests (5 davon nur mit ssh-keygen).
 - Auf dem Server laeuft taeglich 01:05 UTC: Daten, Backtest, Signale, Ledger (`ledger.csv`), Trockenlauf-Ausfuehrung mit Papierkonto (`paper_account_A.json`, `orders_dryrun.csv`, `killswitch_A_dryrun.json`), Fear & Greed, Tagesbericht per ntfy, Healthchecks-Ping.
 - Patrick hat am 7.10. ausgefuehrt: Update, `harden.sh` (Ausgabe nicht gesehen, er meldet "alles erledigt"), Healthchecks-URL in `.env`, Ledger und Dry-Run-Testdateien geloescht fuer sauberen Start.
 - Aktuelle Backtest-Zahlen: Abschnitt 4, Zeile "Nach P1-Korrekturen".
@@ -25,7 +25,7 @@ Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst 
 1. Papierbetrieb laufen lassen (seit 6.10., Entscheidung ueber Live frueh. 1.12.2026). Tagesbericht und Ledger beobachten. Keine Strategie-Aenderungen im Papierbetrieb, sonst ist der Track-Record wertlos.
 2. Live-Vorbereitung ohne Geld: `hl_exec.py` um Order-Senden ueber das offizielle Hyperliquid-SDK erweitern (Version festnageln, nur nach Patricks Freigabe und nur testweise mit sehr kleinem Betrag), Soll/Ist-Abgleich nach Ausfuehrung, Kontowert-Abruf mit echter Adresse pruefen, Mindestorderwert in der Doku pruefen.
 3. Carry-Ausfuehrung (Spot long + Perp short) bauen, erst wenn Carry im Papierbetrieb relevant wird (aktuell flat, Funding 4.6 bis 5.0% p.a. unter der Einstiegsschwelle).
-4. P0/P1-Reste: Update-Pfad haerten (signierte Tags, Abschnitt 5 Punkt 1), ntfy absichern (Punkt 8), Funding-Timing Binance gegen Hyperliquid (Punkt 12). **Harte Reihenfolge:** Update-Pfad gehaertet und Auto-Update als root aus, bevor irgendein Agent-Key auf den Server kommt. Das gilt auch fuer den kleinen SDK-Test aus Punkt 2.
+4. P0/P1-Reste (P1 12: `quant/fundcmp.py` gebaut und mit Synthetikdaten getestet, **Server-Lauf offen**: `cd /opt/autotrader && sudo -u autotrader venv/bin/python -m autotrader.quant.fundcmp --config quant_40.yaml`, holt stuendliche HL-Funding-Historie und vergleicht mit Binance; Ergebnis dann in Abschnitt 4 eintragen und entscheiden, ob Binance-Funding als Stellvertreter reicht): Update-Pfad haerten (signierte Tags, Abschnitt 5 Punkt 1), ntfy absichern (Punkt 8), Funding-Timing Binance gegen Hyperliquid (Punkt 12). **Harte Reihenfolge:** Update-Pfad gehaertet und Auto-Update als root aus, bevor irgendein Agent-Key auf den Server kommt. Das gilt auch fuer den kleinen SDK-Test aus Punkt 2.
 5. Steuer-Export als CSV, Steuerberatung (Schweiz) vor Live.
 6. Nur mit neuem, vorab begruendetem Edge: weitere Strategien testen. Methode wie in Phase 2 festhalten: Varianten vorab zaehlen, ueberlebensfreie Daten, Kosten x2, Datenpruefung, negative Ergebnisse melden.
 

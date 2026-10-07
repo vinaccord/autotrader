@@ -19,6 +19,13 @@ with open(os.path.join(os.path.dirname(__file__), "..", "quant.yaml"), encoding=
     QCFG = yaml.safe_load(f)
 
 ZERO_COSTS = {"spot_fee_bps": 0, "perp_fee_bps": 0, "slippage_bps": 0, "trend_bps": 0}
+
+def data_ms(d):
+    from autotrader.quant.data import ms
+
+    return ms(d)
+
+
 COSTS = {"spot_fee_bps": 7, "perp_fee_bps": 4.5, "slippage_bps": 2, "trend_bps": 10}
 
 
@@ -1185,3 +1192,58 @@ class FetchSafetyTests(unittest.TestCase):
             d.time.sleep = orig
         self.assertEqual(r.json(), [1])
         self.assertEqual(len(calls), 3)
+
+class FundCmpTests(unittest.TestCase):
+    def _series(self, n=120, hl_scale=1.0):
+        days = make_dates(n)
+        bn = {d: 0.0004 if (i // 30) % 2 == 0 else -0.0001 for i, d in enumerate(days)}
+        hl = {d: v * hl_scale for d, v in bn.items()}
+        ohlc = {d: (100.0, 100.0, 100.0, 100.0) for d in days}
+        return days, bn, hl, ohlc
+
+    def test_identical_funding_gives_identical_runs_and_full_agreement(self):
+        from autotrader.quant import fundcmp
+
+        days, bn, hl, ohlc = self._series()
+        carry = {"lookback": 7, "entry_apr": 0.12, "exit_apr": 0.04, "lev": 2}
+        res = fundcmp.compare(days, bn, hl, ohlc, carry, ZERO_COSTS)
+        self.assertAlmostEqual(res["corr_daily"], 1.0, places=6)
+        self.assertEqual(res["signal_agree"], 1.0)
+        self.assertEqual(res["sign_diff_days"], 0)
+        self.assertAlmostEqual(res["bn"]["total"], res["hl"]["total"])
+
+    def test_entry_day_fraction_lowers_return_by_entries_only(self):
+        from autotrader.quant import fundcmp
+
+        days, bn, hl, ohlc = self._series()
+        carry = {"lookback": 7, "entry_apr": 0.12, "exit_apr": 0.04, "lev": 2}
+        res = fundcmp.compare(days, bn, hl, ohlc, carry, ZERO_COSTS, hl_frac=0.5, bn_frac=0.5)
+        self.assertLess(res["hl_frac"]["total"], res["hl"]["total"])
+        self.assertEqual(res["hl_frac"]["entries"], res["hl"]["entries"])
+        lost = res["hl"]["total"] - res["hl_frac"]["total"]
+        self.assertAlmostEqual(lost, res["hl"]["entries"] * 0.5 * (2 / 3) * 0.0004, places=4)
+
+    def test_lower_hl_funding_changes_signals(self):
+        from autotrader.quant import fundcmp
+
+        days, bn, hl, ohlc = self._series(hl_scale=0.1)
+        carry = {"lookback": 7, "entry_apr": 0.12, "exit_apr": 0.04, "lev": 2}
+        res = fundcmp.compare(days, bn, hl, ohlc, carry, ZERO_COSTS)
+        self.assertLess(res["signal_agree"], 1.0)
+        self.assertEqual(res["hl"]["entries"], 0)
+
+    def test_default_entry_day_frac_is_unchanged_behavior(self):
+        days, bn, _, ohlc = self._series()
+        a = carry_returns(days, bn, ohlc, 7, 0.12, 0.04, 2, ZERO_COSTS)
+        b = carry_returns(days, bn, ohlc, 7, 0.12, 0.04, 2, ZERO_COSTS, entry_day_frac=1.0)
+        self.assertEqual(a[0], b[0])
+
+    def test_hl_full_days_requires_24_entries(self):
+        from autotrader.quant import fundcmp
+
+        base = data_ms("2026-01-01")
+        rows = [(base + h * 3_600_000, 0.00001) for h in range(24)] + [(base + 86_400_000 + h * 3_600_000, 0.00001) for h in range(10)]
+        full, partial = fundcmp.hl_full_days(rows, today="2026-02-01")
+        self.assertEqual(list(full), ["2026-01-01"])
+        self.assertAlmostEqual(full["2026-01-01"], 24 * 0.00001)
+        self.assertEqual(partial, {"2026-01-02": 10})
