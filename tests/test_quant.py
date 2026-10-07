@@ -713,6 +713,91 @@ class VisionProbeTests(unittest.TestCase):
         self.assertTrue(any("2021-05 bis 2022-11" in l for l in logs))
 
 
+class UniverseDataTests(unittest.TestCase):
+    @staticmethod
+    def make_zip(rows, header=False):
+        import io as _io, zipfile as _zf
+        lines = (["open_time,open,high,low,close,volume,close_time,quote_volume,count,tbb,tbq,ignore"] if header else [])
+        lines += [",".join(str(x) for x in r) for r in rows]
+        buf = _io.BytesIO()
+        with _zf.ZipFile(buf, "w") as z:
+            z.writestr("x.csv", "\n".join(lines))
+        return buf.getvalue()
+
+    @staticmethod
+    def row(day, close, micro=False):
+        t = int(dt.datetime.fromisoformat(day).replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
+        if micro:
+            t *= 1000
+        return [t, close, close + 1, close - 1, close, 10, t + 86399999, close * 10, 5, 1, 1, 0]
+
+    def test_parse_timestamps_header_and_checksum(self):
+        import hashlib
+        from autotrader.quant import universe_data as u
+        z = self.make_zip([self.row("2024-12-31", 100), self.row("2025-01-01", 101, micro=True)], header=True)
+        good = hashlib.sha256(z).hexdigest() + "  x.zip"
+        text = u.verify_and_read(z, good)
+        rows = u.parse_csv(text)
+        self.assertEqual([r[0] for r in rows], ["2024-12-31", "2025-01-01"])  # ms und Mikrosekunden, Kopfzeile uebersprungen
+        with self.assertRaises(ValueError):
+            u.verify_and_read(z, "0" * 64 + "  x.zip")
+
+    def test_eligible(self):
+        from autotrader.quant import universe_data as u
+        self.assertTrue(u.eligible("SRMUSDT"))
+        self.assertTrue(u.eligible("SUPERUSDT"))  # Basis SUPER endet nicht auf UP/DOWN/BULL/BEAR
+        self.assertFalse(u.eligible("BTCUPUSDT"))
+        self.assertFalse(u.eligible("USDCUSDT"))
+        self.assertFalse(u.eligible("ETHBTC"))
+
+    def test_run_resume_and_daily_after_last_month(self):
+        import hashlib
+        import tempfile
+        from autotrader.quant import universe_data as u, vision_probe as v
+
+        files = {
+            "data/spot/monthly/klines/FOOUSDT/1d/FOOUSDT-1d-2022-10.zip": self.make_zip([self.row("2022-10-30", 5), self.row("2022-10-31", 6)]),
+            "data/spot/daily/klines/FOOUSDT/1d/FOOUSDT-1d-2022-10-31.zip": self.make_zip([self.row("2022-10-31", 6)]),  # schon im Monat: ignorieren
+            "data/spot/daily/klines/FOOUSDT/1d/FOOUSDT-1d-2022-11-01.zip": self.make_zip([self.row("2022-11-01", 1)]),
+            "data/spot/daily/klines/FOOUSDT/1d/FOOUSDT-1d-2022-11-02.zip": self.make_zip([self.row("2022-11-02", 0.5)]),
+        }
+        counter = {"zip": 0}
+
+        class R:
+            status_code = 200
+
+            def __init__(self, text="", content=b""):
+                self.text, self.content = text, content
+
+            def raise_for_status(self):
+                pass
+
+        class S:
+            def request(self, method, url, timeout=0, params=None, **kw):
+                if params is not None and "prefix" in params:
+                    pre = params["prefix"]
+                    if pre == u.MONTHLY:
+                        return R("<ListBucketResult><IsTruncated>false</IsTruncated><CommonPrefixes><Prefix>%sFOOUSDT/</Prefix></CommonPrefixes><CommonPrefixes><Prefix>%sFOOUP/</Prefix></CommonPrefixes></ListBucketResult>" % (u.MONTHLY, u.MONTHLY))
+                    keys = [k for k in files if k.startswith(pre)]
+                    return R("<ListBucketResult><IsTruncated>false</IsTruncated>" + "".join(f"<Contents><Key>{k}</Key></Contents><Contents><Key>{k}.CHECKSUM</Key></Contents>" for k in keys) + "</ListBucketResult>")
+                key = url.replace(u.FILES, "")
+                if key.endswith(".CHECKSUM"):
+                    return R(text=hashlib.sha256(files[key[:-9]]).hexdigest() + "  f.zip")
+                counter["zip"] += 1
+                return R(content=files[key])
+
+        out = tempfile.mkdtemp()
+        st = u.run(out, workers=2, session_factory=S, log=lambda *_: None)
+        self.assertEqual(st["failed"], [])
+        rows = u.read_symbol_csv(os.path.join(out, "FOOUSDT.csv"))
+        self.assertEqual(sorted(rows), ["2022-10-30", "2022-10-31", "2022-11-01", "2022-11-02"])
+        self.assertEqual(counter["zip"], 3)  # Monat + 2 Tage nach dem letzten Monat; Tag 2022-10-31 uebersprungen
+        n = counter["zip"]
+        u.run(out, workers=2, session_factory=S, log=lambda *_: None)
+        self.assertEqual(counter["zip"], n)  # fortsetzbar: nichts erneut geladen
+        self.assertFalse(os.path.exists(os.path.join(out, "FOOUP.csv")))
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile
