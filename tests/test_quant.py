@@ -798,6 +798,74 @@ class UniverseDataTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(out, "FOOUP.csv")))
 
 
+class XsMomTests(unittest.TestCase):
+    @staticmethod
+    def panel(n=400, coins=8, seed=11, delist=None, young=None, drift0=0.003):
+        from autotrader.quant import xsmom as x
+        rnd = random.Random(seed)
+        dates = make_dates(n)
+        raw = {}
+        for k in range(coins):
+            drift = drift0 if k == 0 else 0.0
+            price, rows = 100.0, {}
+            for i, d in enumerate(dates):
+                price *= 1 + drift + rnd.gauss(0, 0.03)
+                rows[d] = (price, price, price, price, 5_000_000.0 + k)
+            raw[f"C{k}USDT"] = rows
+        raw["BTCUSDT"] = {d: (100.0 + i, 0, 0, 100.0 + i, 9e9) for i, d in enumerate(dates)}
+        raw["ETHUSDT"] = {d: (50.0 + i * 0.5, 0, 0, 50.0 + i * 0.5, 8e9) for i, d in enumerate(dates)}
+        if delist:
+            sym, day = delist
+            raw[sym] = {d: v for d, v in raw[sym].items() if d <= dates[day]}
+        if young:
+            sym, day = young
+            raw[sym] = {d: v for d, v in raw[sym].items() if d >= dates[day]}
+        return x.build_panel(raw), dates
+
+    def test_stablecoin_removed_and_universe_point_in_time(self):
+        from autotrader.quant import xsmom as x
+        raw = {"USDXUSDT": {f"2021-01-{d:02d}": (1, 1, 1, 1.0, 1e6) for d in range(1, 29)}}
+        raw["USDXUSDT"].update({f"2021-02-{d:02d}": (1, 1, 1, 1.0, 1e6) for d in range(1, 29)})
+        raw["USDXUSDT"].update({f"2021-03-{d:02d}": (1, 1, 1, 1.0, 1e6) for d in range(1, 29)})
+        raw["BTCUSDT"] = {d: (10, 10, 10, 10.0 + i, 1e9) for i, d in enumerate(sorted(raw["USDXUSDT"]))}
+        p = x.build_panel(raw)
+        self.assertNotIn("USDXUSDT", p["close"])
+        p2, dates = self.panel(young=("C3USDT", 200))
+        self.assertNotIn("C3USDT", x.universe_at(p2, 250))  # erst 50 Tage alt (<90)
+        self.assertIn("C3USDT", x.universe_at(p2, 300))
+
+    def test_causality_changing_future_does_not_change_past(self):
+        from autotrader.quant import xsmom as x
+        p, dates = self.panel()
+        p2, _ = self.panel()  # frisches Panel ohne Zwischenspeicher
+        m = 300
+        for s in p2["close"]:
+            if p2["close"][s][m] is not None:
+                p2["close"][s][m] *= 1.5
+        r1, _ = x.backtest(p, 120, 30, False, 20)
+        r2, _ = x.backtest(p2, 120, 30, False, 20)
+        self.assertEqual(r1[:m], r2[:m])  # Kurs am Tag m darf nur Renditen ab Index m aendern
+        self.assertNotEqual(r1[m], r2[m])
+
+    def test_momentum_picks_the_trending_coin_and_costs_matter(self):
+        from autotrader.quant import xsmom as x
+        p, dates = self.panel(seed=5)
+        r, info = x.backtest(p, 120, 30, False, 20)
+        r_hi, _ = x.backtest(p, 120, 30, False, 400)
+        self.assertGreater(sum(r), sum(r_hi))
+        w = x.pick(p, 300, 30, False)
+        self.assertLessEqual(len(w), x.K)
+        self.assertTrue(all(abs(v - 1.0 / x.K) < 1e-12 for v in w.values()))
+
+    def test_delisting_while_held_books_penalty_then_cash(self):
+        from autotrader.quant import xsmom as x
+        p, dates = self.panel(delist=("C0USDT", 250), drift0=0.02)
+        # C0 hat Drift und wird gehalten; Datenende an Tag 250
+        r, info = x.backtest(p, 120, 30, False, 0)
+        self.assertGreaterEqual(info["delisted_events"], 1)
+        self.assertLess(min(r[251:252]), 0)  # Abschlag am Tag nach dem letzten Kurs
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile
