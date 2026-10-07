@@ -80,6 +80,7 @@ def compare(days, bn, hl, ohlc, carry_cfg, costs, hl_frac=23 / 24, bn_frac=2 / 3
         "corr_daily": corr(b, h),
         "corr_14d": corr([x for x in rolling_apr(b, 14) if x is not None], [x for x in rolling_apr(h, 14) if x is not None]) if n > 14 else 0.0,
         "sign_diff_days": sum(1 for x, y in zip(b, h) if (x > 0) != (y > 0)),
+        "recent": {k: (mean(b[-k:]) * 365, mean(h[-k:]) * 365) for k in (14, 30) if n >= k},
     }
     fb, fh = dict(zip(days, b)), dict(zip(days, h))
     oh = {d: ohlc[d] for d in days}
@@ -101,6 +102,8 @@ def report(res, coin, log=print):
     log(f"\n{coin}: {res['days']} gemeinsame volle Tage, {res['first']} bis {res['last']}")
     log(f"  Funding p.a. im Mittel: Binance {res['apr_bn'] * 100:+.1f}%, Hyperliquid {res['apr_hl'] * 100:+.1f}%")
     log(f"  Korrelation Tagesfunding {res['corr_daily']:.2f}, 14-Tage-Mittel {res['corr_14d']:.2f}; Tage mit anderem Vorzeichen: {res['sign_diff_days']}")
+    for k, (xb, xh) in sorted(res["recent"].items()):
+        log(f"  Letzte {k} Tage p.a.: Binance {xb * 100:+.1f}%, Hyperliquid {xh * 100:+.1f}% (Einstiegsschwelle 12%, Ausstieg 4%)")
     log(f"  Carry-Signal (Standardparameter) gleich an {res['signal_agree'] * 100:.0f}% der Tage")
     log(f"  {'Carry-Lauf':<36}{'Total':>8}{'CAGR':>8}{'MaxDD':>8}{'Tage in':>9}{'Einstiege':>10}")
     labels = {"bn": "Binance-Funding", "bn_frac": "Binance, Einstiegstag 2/3", "hl": "Hyperliquid-Funding", "hl_frac": "Hyperliquid, Einstiegstag 23/24"}

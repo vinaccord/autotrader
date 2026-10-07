@@ -1210,6 +1210,8 @@ class FundCmpTests(unittest.TestCase):
         self.assertAlmostEqual(res["corr_daily"], 1.0, places=6)
         self.assertEqual(res["signal_agree"], 1.0)
         self.assertEqual(res["sign_diff_days"], 0)
+        self.assertEqual(sorted(res["recent"]), [14, 30])
+        self.assertAlmostEqual(res["recent"][14][0], res["recent"][14][1])
         self.assertAlmostEqual(res["bn"]["total"], res["hl"]["total"])
 
     def test_entry_day_fraction_lowers_return_by_entries_only(self):
