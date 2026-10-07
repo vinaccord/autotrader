@@ -664,6 +664,55 @@ class P1Tests(unittest.TestCase):
         self.assertTrue(any("Funding endet" in l for l in logs))
 
 
+class VisionProbeTests(unittest.TestCase):
+    XML1 = """<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>data.binance.vision</Name><IsTruncated>true</IsTruncated><NextMarker>data/spot/monthly/klines/BTCUSDT/</NextMarker><CommonPrefixes><Prefix>data/spot/monthly/klines/BTCUSDT/</Prefix></CommonPrefixes><CommonPrefixes><Prefix>data/spot/monthly/klines/ETHBTC/</Prefix></CommonPrefixes></ListBucketResult>"""
+    XML2 = """<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>false</IsTruncated><CommonPrefixes><Prefix>data/spot/monthly/klines/FTTUSDT/</Prefix></CommonPrefixes><CommonPrefixes><Prefix>data/spot/monthly/klines/BTCUPUSDT/</Prefix></CommonPrefixes></ListBucketResult>"""
+
+    def test_parse_and_classify(self):
+        from autotrader.quant import vision_probe as v
+        p, k, nm, tr = v.parse_listing(self.XML1)
+        self.assertEqual((len(p), tr, nm), (2, True, "data/spot/monthly/klines/BTCUSDT/"))
+        syms = v.symbols_from_prefixes(p)
+        self.assertEqual(syms, ["BTCUSDT", "ETHBTC"])
+        now, gone = v.classify(["BTCUSDT", "FTTUSDT", "BTCUPUSDT", "ETHBTC", "LUNAUSDT"], {"BTCUSDT"})
+        self.assertEqual(now, ["BTCUSDT"])
+        self.assertEqual(gone, ["FTTUSDT", "LUNAUSDT"])  # gehebelte Token und Nicht-USDT-Paare raus
+        self.assertEqual(v.month_range(["x/FTT-1d-2021-05.zip", "x/FTT-1d-2022-11.zip", "x/FTT-1d-2022-11.zip.CHECKSUM"]), ("2021-05", "2022-11"))
+
+    def test_probe_with_fake_session_and_paging(self):
+        from autotrader.quant import vision_probe as v
+
+        class R:
+            status_code = 200
+
+            def __init__(self, text=None, j=None):
+                self.text, self.j = text, j
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.j
+
+        calls = []
+
+        class S:
+            def request(self, method, url, timeout=0, params=None, **kw):
+                if "exchangeInfo" in url:
+                    return R(j={"symbols": [{"symbol": "BTCUSDT", "status": "TRADING"}, {"symbol": "ETHUSDT", "status": "TRADING"}]})
+                calls.append(dict(params))
+                if params["prefix"] == v.BASE:
+                    return R(self_xml := (TestXML2 if params.get("marker") else TestXML1))
+                return R("""<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>data/spot/monthly/klines/FTTUSDT/1d/FTTUSDT-1d-2021-05.zip</Key></Contents><Contents><Key>data/spot/monthly/klines/FTTUSDT/1d/FTTUSDT-1d-2022-11.zip</Key></Contents></ListBucketResult>""")
+
+        TestXML1, TestXML2 = self.XML1, self.XML2
+        logs = []
+        out = v.probe(S(), log=logs.append)
+        self.assertIn("FTTUSDT", out["gone"])
+        self.assertEqual(len([c for c in calls if c["prefix"] == v.BASE]), 2)  # Seitenwechsel
+        self.assertTrue(any("2021-05 bis 2022-11" in l for l in logs))
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile
