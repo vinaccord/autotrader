@@ -52,8 +52,8 @@ class SignedUpdateTests(unittest.TestCase):
         for k in ("good", "evil"):
             run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", os.path.join(t, k)])
         self.signers = os.path.join(t, "allowed_signers")
-        with open(self.signers, "w") as f:
-            f.write("release@autotrader " + open(os.path.join(t, "good.pub")).read())
+        with open(os.path.join(t, "good.pub")) as pub, open(self.signers, "w") as f:
+            f.write("release@autotrader " + pub.read())
         run(["git", "config", "user.email", "t@t"], cwd=self.work)
         run(["git", "config", "user.name", "t"], cwd=self.work)
         os.makedirs(os.path.join(self.work, "deploy"))
@@ -83,7 +83,10 @@ class SignedUpdateTests(unittest.TestCase):
 
     def deployed(self):
         p = os.path.join(self.app, "deploy", "quant_daily.sh")
-        return open(p).read() if os.path.exists(p) else None
+        if not os.path.exists(p):
+            return None
+        with open(p) as f:
+            return f.read()
 
     def test_valid_signed_tag_deploys(self):
         self.tag("v1", "good")
