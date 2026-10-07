@@ -488,6 +488,112 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(sf.position_mismatch({"UBTC": 5000}, {"UBTC": 4800}, 10000, 0.05), [])
 
 
+class HlExecTests(unittest.TestCase):
+    def test_plan_orders_rounding_threshold_and_cloid(self):
+        from autotrader.quant import hl_exec as h
+        prices, szd = {"UBTC": 80000.0}, {"UBTC": 5}
+        o, sk = h.plan_orders({"BTC": 4000.0}, {}, prices, szd, 10000, "A", "2026-10-07")
+        self.assertEqual(len(o), 2)  # 4000 USD ueber 2250 USD Teilgrenze (90% von 25%) -> 2 Teilorders
+        self.assertAlmostEqual(sum(x["sz"] for x in o), 0.05, places=5)
+        self.assertEqual(o[0]["side"], "buy")
+        self.assertAlmostEqual(o[0]["limit_px"], 80240.0)  # +30 bps, 5 gueltige Stellen
+        again, _ = h.plan_orders({"BTC": 4000.0}, {}, prices, szd, 10000, "A", "2026-10-07")
+        self.assertEqual([x["cloid"] for x in o], [x["cloid"] for x in again])  # idempotent
+        self.assertEqual(len(o[0]["cloid"]), 34)
+        # Aenderung unter 2% des Kontowerts: nicht handeln
+        o, sk = h.plan_orders({"BTC": 4100.0}, {"UBTC": 0.05}, prices, szd, 10000, "A", "2026-10-07")
+        self.assertEqual(o, [])
+        self.assertTrue(sk)
+        # vollstaendiger Verkauf geht immer, auch klein
+        o, _ = h.plan_orders({"BTC": 0.0}, {"UBTC": 0.0002}, prices, szd, 10000, "A", "2026-10-07")
+        self.assertEqual((len(o), o[0]["side"]), (1, "sell"))  # 16 USD, ueber Mindestwert 10, trotz Schwelle
+        # unbekannter Coin
+        o, sk = h.plan_orders({"XRP": 1000.0}, {}, prices, szd, 10000, "A", "2026-10-07")
+        self.assertEqual((o, len(sk)), ([], 1))
+
+    def test_large_order_is_split_below_cap(self):
+        from autotrader.quant import hl_exec as h, safety as sf
+        prices, szd = {"UBTC": 80000.0}, {"UBTC": 5}
+        o, _ = h.plan_orders({"BTC": 8000.0}, {}, prices, szd, 10000, "A", "2026-10-07", max_order_frac=0.25)
+        self.assertGreater(len(o), 1)
+        self.assertAlmostEqual(sum(x["sz"] for x in o), 0.1, places=5)
+        self.assertEqual(sf.orders([x["usd"] for x in o], 10000, 0, 0.25, 1.0), [])
+        self.assertEqual(len({x["cloid"] for x in o}), len(o))
+
+    def test_log_is_idempotent(self):
+        import tempfile
+        from autotrader.quant import hl_exec as h
+        p = os.path.join(tempfile.mkdtemp(), "o.csv")
+        row = {"ts": "t", "date": "d", "wallet": "A", "asset": "UBTC", "side": "buy", "sz": 1, "limit_px": 1, "usd": 1, "cloid": "0xabc", "status": "planned", "reason": ""}
+        self.assertEqual(h.log_orders(p, [row]), 1)
+        self.assertEqual(h.log_orders(p, [row]), 0)
+
+    def test_targets_and_killswitch_mult(self):
+        from autotrader.quant import hl_exec as h
+        ew = {"trend": 1.0, "carry": 0.0, "cash": 0.0}
+        t = h.targets_usd(ew, {"BTC": 1.0, "ETH": 0.5}, 10000, 0.5, ["BTC", "ETH"])
+        self.assertAlmostEqual(t["BTC"], 2500)
+        self.assertAlmostEqual(t["ETH"], 1250)
+
+    def test_run_with_fake_api_dry_run_only(self):
+        import tempfile
+        from autotrader.quant import hl_exec as h, pipeline as pl
+
+        dates, ohlc, fund = synth_market(1300)
+        cfg = copy.deepcopy(QCFG)
+        cfg["coins"] = ["BTC"]
+        cfg["data_dir"] = tempfile.mkdtemp()
+        last = ohlc[dates[-1]][3]
+        data_mod = h.data
+        orig_load, orig_sig = data_mod.load_all, pl.signal
+        data_mod.load_all = lambda c: (dates, {"BTC": ohlc}, {"BTC": fund})
+        pl.signal = lambda cfg_, d, o, f, r: {"as_of": dates[-1], "trend": {"BTC": {"target_exposure": 0.8}}, "carry": {"BTC": {"in_position": False, "trailing_apr": 0.0}}, "weights": {"trend": 0.7, "carry": 0.3}}
+
+        class R:
+            status_code = 200
+
+            def __init__(self, j):
+                self.j = j
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.j
+
+        class S:
+            def request(self, method, url, timeout=0, json=None, params=None, **kw):
+                if "coingecko" in url:
+                    return R({"usd-coin": {"usd": 1.0}})
+                t = json["type"]
+                if t == "spotMetaAndAssetCtxs":
+                    return R([{"tokens": [{"name": "USDC", "index": 0, "szDecimals": 8}, {"name": "UBTC", "index": 1, "szDecimals": 5}],
+                               "universe": [{"name": "@10", "tokens": [1, 0], "index": 0}]}, [{"dayNtlVlm": "1"}]])
+                if t == "allMids":
+                    return R({"@10": str(last), "BTC": str(last)})
+                if t == "candleSnapshot":
+                    return R([{"t": data_mod.ms(dates[-1]), "o": last, "h": last, "l": last, "c": str(last), "v": 1}])
+                raise AssertionError(t)
+
+        try:
+            plan = {"mode": "dry-run", "dry_run": {"paper_equity_usdc": 10000},
+                    "kill_switch": {"warn_dd": 0.2, "brake_dd": 0.3, "brake_release_dd": 0.2, "stop_dd": 0.4, "stop_below_deposits": 0.6, "global_stop_dd": 0.4},
+                    "safety": {"max_data_age_hours": 36, "max_source_divergence": 0.03, "unit_token_max_deviation": 0.02, "usdc_depeg_floor": 0.98, "max_order_frac": 0.25, "max_daily_turnover_frac": 1.0, "max_slippage_bps": 30}}
+            now = dt.datetime.fromisoformat(dates[-1]).replace(tzinfo=dt.timezone.utc) + dt.timedelta(days=1, hours=1)
+            out = h.run(cfg, plan, session=S(), now=now, log=lambda *_: None)
+            self.assertEqual(out["violations"], [])
+            self.assertGreaterEqual(len(out["orders"]), 1)
+            self.assertTrue(all(o["side"] == "buy" for o in out["orders"]))
+            self.assertTrue(os.path.exists(os.path.join(cfg["data_dir"], "orders_dryrun.csv")))
+            # veraltete Daten blockieren
+            out2 = h.run(cfg, plan, session=S(), now=now + dt.timedelta(days=5), log=lambda *_: None)
+            self.assertTrue(any("alt" in v for v in out2["violations"]))
+            with self.assertRaises(SystemExit):
+                h.run(cfg, dict(plan, mode="live"), session=S(), now=now, log=lambda *_: None)
+        finally:
+            data_mod.load_all, pl.signal = orig_load, orig_sig
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile

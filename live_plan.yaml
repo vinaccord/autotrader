@@ -1,6 +1,11 @@
 # Live-Plan (Entscheidungen vom 7.10.2026, siehe docs/HANDOFF.md Abschnitte 6.2, 6.5, 7.1, 7.2).
-# Noch von keinem Code gelesen. Die naechste Session baut hl_exec.py und den Supervisor gegen diese Werte.
-mode: dry-run                 # dry-run | live. "live" nur nach Patricks ausdruecklicher Freigabe im Chat.
+# Gelesen von quant/hl_exec.py (Trockenlauf), killswitch.py und safety.py.
+mode: dry-run                 # dry-run | live. "live" nur nach Patricks ausdruecklicher Freigabe im Chat. Code kennt nur dry-run.
+
+dry_run:
+  paper_equity_usdc: 10000    # Kontowert fuer den Plan, solange keine Adresse (HL_ACCOUNT_ADDRESS) gesetzt ist
+  min_order_usd: 10           # Mindestorderwert Hyperliquid, gegen offizielle Doku pruefen vor Live
+  min_trade_frac: 0.02        # kleinere Aenderungen (Anteil Kontowert) werden nicht gehandelt, spart Gebuehren
 
 venue:
   name: hyperliquid
