@@ -19,5 +19,18 @@ case "${1:-}" in
     systemctl enable --now quant-update.timer
     systemctl list-timers quant-update.timer --no-pager
     ;;
-  *) echo "Aufruf: update_setup.sh key|install"; exit 1;;
+  lock)
+    # Auto-Update abschalten, signierten Update-Weg installieren. Die Zeile mit dem oeffentlichen Signierschluessel
+    # (ssh-ed25519 ...) steht in /opt/autotrader-src/deploy/release_signer.pub (von Patrick, nur oeffentlicher Teil).
+    SIGNER=/opt/autotrader-src/deploy/release_signer.pub
+    [ -s "$SIGNER" ] || { echo "FEHLER: $SIGNER fehlt"; exit 1; }
+    grep -q '^ssh-ed25519 ' "$SIGNER" || { echo "FEHLER: keine ssh-ed25519-Zeile"; exit 1; }
+    install -d -m 755 -o root -g root /etc/autotrader
+    echo "release@autotrader $(cat "$SIGNER")" > /etc/autotrader/allowed_signers
+    chmod 644 /etc/autotrader/allowed_signers
+    install -m 755 -o root -g root /opt/autotrader-src/deploy/update_signed.sh /usr/local/sbin/autotrader-update
+    systemctl disable --now quant-update.timer
+    echo "Auto-Update aus. Ab jetzt: sudo autotrader-update vJAHR.MONAT.N"
+    ;;
+  *) echo "Aufruf: update_setup.sh key|install|lock"; exit 1;;
 esac

@@ -1,7 +1,7 @@
 """Taegliche Zusammenfassung: Signale beider Profile, Aenderungen seit gestern, Papier-Ergebnis, Gesundheitschecks.
 
 python -m autotrader.quant.report --main quant_40.yaml --core quant.yaml --paper-start 2026-10-06
-Schreibt data/quant/latest_report.txt und data/quant/state.json. Optional Push per ntfy (Umgebungsvariable NTFY_TOPIC).
+Schreibt data/quant/latest_report.txt und data/quant/state.json. Optional Push per ntfy (NTFY_TOPIC; NTFY_DETAIL=short sendet nur Status ohne Positionen).
 """
 import argparse
 import datetime as dt
@@ -129,6 +129,16 @@ def _load(path):
     return {"cfg": cfg, "dates": dates, "ohlc": ohlc, "fund": fund}
 
 
+def notify_body(text, warns, detail):
+    """detail 'full': ganzer Bericht (Papierphase). 'short': keine Positionen oder Betraege im Push, nur Status (ntfy.sh ist oeffentlich)."""
+    if detail == "short":
+        first = text.splitlines()[0] if text else "Autotrader"
+        if warns:
+            return f"{first}\n{len(warns)} Warnung(en). Details auf dem Server: latest_report.txt"
+        return f"{first}\nKeine Warnungen."
+    return text
+
+
 def notify(text, warns):
     topic = os.environ.get("NTFY_TOPIC")
     if not topic:
@@ -136,8 +146,9 @@ def notify(text, warns):
     import requests
 
     title = "Autotrader: " + ("WARNUNG" if warns else "OK")
+    body = notify_body(text, warns, os.environ.get("NTFY_DETAIL", "full"))
     try:
-        requests.post(f"https://ntfy.sh/{topic}", data=text.encode("utf-8"), headers={"Title": title, "Priority": "high" if warns else "default"}, timeout=15)
+        requests.post(f"https://ntfy.sh/{topic}", data=body.encode("utf-8"), headers={"Title": title, "Priority": "high" if warns else "default"}, timeout=15)
     except requests.RequestException:
         pass
 

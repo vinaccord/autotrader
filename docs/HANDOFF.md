@@ -7,7 +7,7 @@ Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst 
 ## 0. Einstieg (Stand 7.10.2026, 13:30, Commit nach 25ba9f3)
 
 **Kurzstand**
-- Phase 0 erledigt, Phase 1 bis auf Live-Teile erledigt (Details am Ende von Abschnitt 8), Phase 2 erledigt (negativ). 109 Tests grün.
+- Phase 0 erledigt, Phase 1 bis auf Live-Teile erledigt (Details am Ende von Abschnitt 8), Phase 2 erledigt (negativ). 117 Tests (5 davon nur mit ssh-keygen).
 - Auf dem Server laeuft taeglich 01:05 UTC: Daten, Backtest, Signale, Ledger (`ledger.csv`), Trockenlauf-Ausfuehrung mit Papierkonto (`paper_account_A.json`, `orders_dryrun.csv`, `killswitch_A_dryrun.json`), Fear & Greed, Tagesbericht per ntfy, Healthchecks-Ping.
 - Patrick hat am 7.10. ausgefuehrt: Update, `harden.sh` (Ausgabe nicht gesehen, er meldet "alles erledigt"), Healthchecks-URL in `.env`, Ledger und Dry-Run-Testdateien geloescht fuer sauberen Start.
 - Aktuelle Backtest-Zahlen: Abschnitt 4, Zeile "Nach P1-Korrekturen".
@@ -21,7 +21,7 @@ Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst 
 **Gegenpruefung Phase 2 (Opus, 7.10. Mittag):** `xstrend` und `xsmom` geprueft: Stablecoins und Hebel-Token ausgeschlossen, Position Tag i wirkt ab i+1, Vola close-to-close, Vergleich bei gleichen Kosten fair. Ergebnis gilt. Kleinigkeit ohne Einfluss auf das Fazit: `xstrend.positions` zaehlt SMA-Tage ueber vorhandene Kerzen, nicht Kalendertage (nur bei Coins mit Luecken relevant).
 
 **Naechste Aufgaben (Reihenfolge)**
-0. **Go/No-Go-Kriterien fuer den 1.12. vorab festlegen** und Patrick zur Bestaetigung vorlegen, bevor weitere Papier-Wochen laufen. `docs/STRATEGIE.md` Abschnitt 8 ist veraltet (adaptiv, Hebel 2, Kill-Switch -15%) und wird ersetzt. 8 Wochen Papier sagen statistisch nichts ueber die Rendite; Kriterien darum vor allem betrieblich: keine verpassten Tageslaeufe (Healthchecks), Papier-Fills gegen Backtest-Positionen (Abweichung je Tag unter einer festen Schwelle), Ledger lueckenlos, Kill-Switch und Sicherungen mindestens einmal per Test ausgeloest, Soll/Ist-Abgleich gebaut. Rendite nur als Plausibilitaet (Papier innerhalb einer vorab genannten Bandbreite um den Backtest derselben Tage). Startbetrag und Kill-Switch-Stufen aus `live_plan.yaml` uebernehmen.
+0. **Go/No-Go-Kriterien: von Patrick bestaetigt am 7.10.** (A bis F, Wortlaut in `docs/STRATEGIE.md` Abschnitt 8, nicht mehr aendern). Startbetrag 1'000 USDC echtes Geld, `live_plan.yaml` Abschnitt `live`. Kriterium F in Arbeit: signierte Tags (`deploy/update_signed.sh`, Test), ntfy kurz (`NTFY_DETAIL=short`), Pruefung `deploy/check_f.sh`. **Ungeprueft:** `tests/test_deploy.py` (SignedUpdateTests) wird in der Cloud-Umgebung uebersprungen (kein ssh-keygen); Patrick fuehrt sie auf dem Server aus, bis dahin gilt die Signaturpruefung als nicht verifiziert. Patrick muss einmal Signierschluessel und Server-Umstellung ausfuehren (Anleitung in `deploy/README_signed_update.md`).
 1. Papierbetrieb laufen lassen (seit 6.10., Entscheidung ueber Live frueh. 1.12.2026). Tagesbericht und Ledger beobachten. Keine Strategie-Aenderungen im Papierbetrieb, sonst ist der Track-Record wertlos.
 2. Live-Vorbereitung ohne Geld: `hl_exec.py` um Order-Senden ueber das offizielle Hyperliquid-SDK erweitern (Version festnageln, nur nach Patricks Freigabe und nur testweise mit sehr kleinem Betrag), Soll/Ist-Abgleich nach Ausfuehrung, Kontowert-Abruf mit echter Adresse pruefen, Mindestorderwert in der Doku pruefen.
 3. Carry-Ausfuehrung (Spot long + Perp short) bauen, erst wenn Carry im Papierbetrieb relevant wird (aktuell flat, Funding 4.6 bis 5.0% p.a. unter der Einstiegsschwelle).
@@ -327,6 +327,7 @@ Begründung:
 3. Trend über Spot auf Hyperliquid (UBTC/UETH), nicht über Perps (7.1).
 4. Kill-Switch gestuft -20/-30/-40% ab Höchststand (7.2).
 5. LLM über Groq Free Tier, Fallback Gemini/Mistral; kein Anthropic-Key; kein X (kostenpflichtig) (6.5).
+6. **Entschieden von Patrick am 7.10. (nachmittags):** Go/No-Go-Kriterien A bis F (STRATEGIE.md Abschnitt 8); Startbetrag 1'000 USDC echtes Geld nach bestandenem Papier-Test und Freigabe, mindestens 4 Wochen, Aufstockung nur auf Freigabe.
 
 **Noch offen**
 - Steuerberatung zur Frage gewerbsmässiger Handel (Schweiz) vor Live.

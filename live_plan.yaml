@@ -31,6 +31,11 @@ split:
   rebalance_band_pp: 10       # erst ab 10 Prozentpunkten Abweichung Ueberweisung vorschlagen (ntfy), Patrick fuehrt aus
   third_wallet_min_total_usdc: 100000   # nur mit dritter, eigenstaendig getesteter Strategie und auf zweiter Plattform
 
+live:                         # gilt erst nach bestandenem Papier-Test und Patricks ausdruecklicher Freigabe im Chat
+  start_usdc: 1000            # Startbetrag echtes Geld (Patrick, 7.10.2026). Die 10'000 im Papierkonto sind nur Papier.
+  start_hold_weeks: 4         # mindestens 4 Wochen auf diesem Betrag, bevor aufgestockt wird
+  topup_requires_approval: true   # Aufstockung nur auf ausdrueckliche Freigabe, nie automatisch
+
 kill_switch:                  # gemessen ab Hoechststand (High-Water-Mark), je Wallet und global
   warn_dd: 0.20
   brake_dd: 0.30              # Exposure halbieren

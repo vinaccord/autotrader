@@ -71,14 +71,23 @@ Ausfuehrung zum Schlusskurs, pauschale Kosten, keine Teilfuellungen, keine Basis
 
 Zusatztool nicht noetig: Ein systemd-Timer (im Paket) startet den Job taeglich. Optional ein externer Dead-Man-Switch wie Healthchecks.io, der meldet, wenn der Job ausbleibt (nicht enthalten).
 
-## 8. Vorschlag fuer Go-Live-Kriterien
+## 8. Go-Live-Kriterien (von Patrick bestaetigt am 7.10.2026)
 
-Das sind meine Vorschlaege, keine Regeln aus der Literatur:
-1. Echter Backtest (`fetch`, `backtest`) auf mindestens 4 Jahren. Adaptiv kombiniert schlaegt Buy-and-Hold beim Sharpe und beim maximalen Verlust, auch wenn alle Kosten verdoppelt werden.
-2. Adaptiv ist nicht schlechter als die festen Standardwerte. Sonst Anpassung abschalten.
-3. Mindestens 8 Wochen Papier-Betrieb mit dem taeglichen Signal-Log, Abgleich mit der Erwartung.
-4. Danach kleiner Start: Betrag, dessen Totalverlust verkraftbar ist, Hebel hoechstens 2, ein fester Kill-Switch (Abbruch bei z.B. -15% auf dem Startbetrag).
-5. Live-Ausfuehrung (Hyperliquid-API, Agent-Key, Mindestgroessen, Margin-Puffer, Reconciliation) baue ich erst, wenn 1 bis 3 erfuellt sind.
+Stand ersetzt die frueheren Vorschlaege (adaptives Profil, Hebel 2, Kill-Switch -15%), die nicht mehr gelten. Die Kriterien sind vorab festgelegt und werden waehrend des Papierbetriebs nicht angepasst. Entscheid frueh. 1.12.2026, nur mit Patricks ausdruecklicher Freigabe im Chat.
+
+Geprueft wird der Betrieb, nicht die Rendite: 8 Wochen Papier sagen statistisch nichts ueber die Rendite, und BTC/ETH kann ohne jeden Systemfehler schlecht laufen.
+
+Muss-Kriterien (alle erfuellt, sonst kein Live):
+- **A Betrieb lueckenlos.** Von 56 Tagen ab 6.10. fehlt hoechstens 1 Tageslauf (Healthchecks, daily.log), kein Ausfall laenger als 48 h, Ledger ohne Datenluecke.
+- **B Papier gleich Backtest.** Papierkonto haelt taeglich dieselben Positionen wie der Backtest derselben Tage, Abweichung hoechstens 0.05 Anteil Kontowert; hoechstens 3 Tage verletzt, jeweils erklaert.
+- **C Kosten wie angenommen.** Gebuchte Papierkosten liegen innerhalb 2x der Backtest-Kosten (trend_bps 10).
+- **D Schutz getestet.** Kill-Switch (warn, brake, stop) und mindestens 3 Sicherungen mit Testdaten ausgeloest und im Repo dokumentiert.
+- **E Ausfuehrung geprueft.** Order-Senden ueber das offizielle SDK (Version festgenagelt), Soll/Ist-Abgleich, spotClearinghouseState mit echter Adresse und Mindestorderwert gegen die Doku verifiziert. Test mit Kleinstbetrag erst nach F und nach Patricks Freigabe.
+- **F Server gehaertet.** Auto-Update als root abgeschaltet, Updates nur ueber signierte Tags; ntfy-Thema nicht erratbar und ohne Positionsdaten. Vor dem Agent-Key auf dem Server. Pruefung: `deploy/check_f.sh`.
+
+Warnsignale (kein Muss-Kriterium): Papierrendite der Periode weicht um mehr als 10 Prozentpunkte vom Backtest derselben Tage ab (Ursache klaeren vor Live). Papier-Drawdown ueber 30% ist Anlass fuer Pause und Analyse. Ein Verlust allein schliesst Live nicht aus.
+
+Start live (`live_plan.yaml`): 1'000 USDC echtes Geld, mindestens 4 Wochen auf diesem Betrag, Aufstockung nur auf ausdrueckliche Freigabe. Trend ueber Spot (Hebel 1). Kill-Switch warn -20%, brake -30%, stop -40% ab Hoechststand, zusaetzlich stop bei Kontowert unter 60% der Einzahlungen. Carry-Teil erst, wenn die Carry-Ausfuehrung gebaut und getestet ist.
 
 ## 9. Recht und Steuern Schweiz (Hinweise, keine Beratung)
 
