@@ -59,6 +59,7 @@ allocator:
     carry: 0.3
     trend: 0.7
 macro:
+  gdelt_enabled: false  # 7.10.: HTTP 429 vom Server trotz Pause und Retry, kein Backtest-Nutzen; Ersatz: RSS (Phase 3)
   queries:
     fed: ("Federal Reserve" OR "interest rates")
     zoelle: (tariffs OR sanctions)

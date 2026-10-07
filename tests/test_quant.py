@@ -300,6 +300,28 @@ class LedgerTests(unittest.TestCase):
         self.assertFalse(any("LEDGER" in w for w in warns))
 
 
+class GdeltOffTests(unittest.TestCase):
+    def test_gdelt_disabled_makes_no_tone_requests(self):
+        import tempfile
+        from autotrader.quant import macro
+
+        class S:
+            def get(self, url, **kw):
+                if "gdelt" in url:
+                    raise AssertionError("GDELT darf nicht abgefragt werden")
+                raise RuntimeError("offline")
+
+        orig = macro.fetch_fng
+        macro.fetch_fng = lambda session=None: {"2026-10-01": 50}
+        try:
+            cfg = {"data_dir": tempfile.mkdtemp(), "macro": {"gdelt_enabled": False, "queries": {"x": "y"}}}
+            logs = []
+            macro.cmd_fetch(cfg, log=logs.append, session=S())
+        finally:
+            macro.fetch_fng = orig
+        self.assertTrue(any("GDELT aus" in l for l in logs))
+
+
 class MacroTests(unittest.TestCase):
     def test_parse_fng_and_gdelt(self):
         from autotrader.quant import macro

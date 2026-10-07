@@ -72,7 +72,7 @@ Der alte DEX-Agent (`autotrader/agent.py`, `adapt.py`, `security.py`, `risk.py`,
 | FOMC-Tage halbieren | kein Nutzen | verworfen |
 | 5 Coins gleichgewichtet | Sharpe +0.15, MaxDD 8 Pp schlechter | nicht übernommen |
 | 12 / 16 Coins gleichgewichtet | CAGR 15–16% statt 21% (ab 2021-06) | verworfen |
-| GDELT-Abruf | HTTP 429 vom Server, Korrektur (Pause 12 s, Retry) seit 6.10. aktiv, Ergebnis offen | prüfen |
+| GDELT-Abruf | HTTP 429 auch mit Pause und Retry (7.10.) | abgeschaltet |
 
 **Lehre:** Mehr Regeln und mehr Coins im Gleichgewicht haben nichts gebracht. Der Ertrag kommt aus dem Trend-Filter auf BTC/ETH. Die Jahre sind sehr ungleich (2023 +42%, 2024 +52%, 2022 -4%, 2025 -1%).
 
@@ -268,7 +268,7 @@ Begründung:
 - Dead-Man-Switch im Code (`HC_PING_URL` in `.env`, Ping am Ende von `quant_daily.sh`, `/fail` bei Fehlern). Offen: Patrick legt Healthchecks-Check an (Periode 1 Tag, Grace 12 h) und setzt die URL.
 - Haertung als `deploy/harden.sh` (ufw, fail2ban, Passwort-Login aus, GitHub-Host-Key aus api.github.com/meta, Logrotate). Offen: Patrick fuehrt es auf dem Server aus.
 - Offen: Update-Pfad (Punkt 1). Auto-Update bleibt in der Paper-Phase an und wird vor Live abgeschaltet; Umbau auf signierte Tags erst, wenn Live naht.
-- GDELT-Ergebnis: noch nicht geprueft (Server-Zugriff noetig).
+- GDELT: Server liefert auch mit Pause und Retry HTTP 429, Tageszeile leer. Abruf per `macro.gdelt_enabled: false` abgeschaltet (kein Backtest-Nutzen). Nachrichten kommen in Phase 3 ueber RSS.
 
 ## 9. Entscheidungen
 

@@ -149,6 +149,9 @@ def cmd_fetch(cfg, log=print, session=None, pause=12.0, retry_wait=30.0):
     fng = fetch_fng(session)
     data.save_rows(fng_path(cfg), ["date", "value"], sorted(fng.items()))
     log(f"Fear & Greed: {len(fng)} Tage ({min(fng)} bis {max(fng)})")
+    if not cfg.get("macro", {}).get("gdelt_enabled", True):
+        log("GDELT aus (macro.gdelt_enabled: false)")
+        return
     today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
     tones = {}
     for k, (name, q) in enumerate((cfg.get("macro", {}).get("queries") or {}).items()):
