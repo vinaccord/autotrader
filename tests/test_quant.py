@@ -884,6 +884,45 @@ class XsMomDiagTests(unittest.TestCase):
         self.assertTrue(any("schlechtester Tag" in l for l in logs))
 
 
+class XsTrendTests(unittest.TestCase):
+    def test_fixed_members_zero_cost_equals_basket_of_trend_returns(self):
+        from autotrader.quant import xsmom as x, xstrend as xt
+        from autotrader.quant.strategies import trend_returns, basket
+        p, dates = XsMomTests.panel(n=600, seed=9)
+        mem = ["C0USDT", "C1USDT"]
+        rets, _ = xt.sleeve(p, 250, 2, 0.0, members_fn=lambda i: mem)
+        per = []
+        for s in mem:
+            ohlc = {d: (c, c, c, c) for d, c in zip(dates, p["close"][s])}
+            r, _ = trend_returns(dates, ohlc, 200, 30, 0.45, 1.0, 0.1, 0.0)
+            per.append(r)
+        ref = basket(per)
+        for i in range(251, 600):
+            self.assertAlmostEqual(rets[i], ref[i], places=12)
+
+    def test_causality_and_costs(self):
+        from autotrader.quant import xstrend as xt
+        p, dates = XsMomTests.panel(n=600, seed=9, drift0=0.01)
+        p2, _ = XsMomTests.panel(n=600, seed=9, drift0=0.01)
+        m = 450
+        for s in p2["close"]:
+            if p2["close"][s][m] is not None:
+                p2["close"][s][m] *= 1.4
+        r1, _ = xt.sleeve(p, 250, 3, 20, members_fn=lambda i: ["C0USDT", "C1USDT", "C2USDT"])
+        r2, _ = xt.sleeve(p2, 250, 3, 20, members_fn=lambda i: ["C0USDT", "C1USDT", "C2USDT"])
+        self.assertEqual(r1[:m], r2[:m])
+        r_hi, _ = xt.sleeve(p, 250, 3, 300, members_fn=lambda i: ["C0USDT", "C1USDT", "C2USDT"])
+        self.assertGreater(sum(r1), sum(r_hi))
+
+    def test_universe_variant_runs_and_respects_min_history(self):
+        from autotrader.quant import xstrend as xt
+        p, dates = XsMomTests.panel(n=700, seed=4, young=("C5USDT", 300))
+        logs = []
+        out = xt.report(p, dates[260], log=logs.append)
+        self.assertEqual(len(out), 8)
+        self.assertTrue(any("Top-5" in l for l in logs))
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile

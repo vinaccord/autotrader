@@ -71,7 +71,7 @@ def asset_returns(dates, ohlc):
     return [0.0] + [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes))]
 
 
-def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cost_bps, crash=None, event_days=None, delay=0, funding=None):
+def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cost_bps, crash=None, event_days=None, delay=0, funding=None, pos_out=None):
     """Long/Flat auf SMA-Filter, Positionsgroesse per Ziel-Volatilitaet. Nur Long, Hebel hoechstens max_lev.
 
     sma_n: eine Laenge (int) oder eine Liste. Bei einer Liste ist die Position der Anteil der Laengen, bei denen der Kurs
@@ -82,6 +82,7 @@ def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cos
 
     delay: Ausfuehrungsverzoegerung in Tagen. 0 = Fill zum Schlusskurs des Signaltags (Standard), 1 = Fill erst zum Schlusskurs
     des Folgetags (konservative Obergrenze; der echte Job laeuft rund 65 Minuten nach Tagesschluss).
+    pos_out: optionale Liste, bekommt je Tag die geplante Position nach dem Signal (fuer Universum-Tests).
     funding: Liste (gleiche Laenge wie dates) mit Tages-Funding je Tag; eine Long-Position zahlt es (Perp-Variante). None = Spot.
 
     Gibt (rets, last_target) zurueck. last_target ist die Zielposition nach dem Signal des letzten Tages (geplant, nicht ausgefuehrt).
@@ -113,6 +114,8 @@ def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cos
         else:
             new = pos  # kleine Anpassungen unterdruecken, spart Kosten
         plan.append(new)
+        if pos_out is not None:
+            pos_out.append(new)
         if i < n - 1:
             ex = plan[i - delay] if i - delay >= 0 else 0.0
             out[i + 1] = ex * ar[i + 1] - abs(ex - held) * cost_bps / 1e4 - (ex * funding[i + 1] if funding else 0.0)
