@@ -6,7 +6,7 @@ Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst 
 
 ## 1. Auftraggeber und Arbeitsweise
 
-- **Patrick Stüssi**, Richterswil (ZH). Kommunikation auf Deutsch, präzise, Empfehlung zuerst, dann Begründung. Kurze Absätze, Aufzählungen. Kein "ß", immer "ss". Keine Floskeln, keine typischen KI-Schreibmuster (aufgeblasene Adjektive, "nicht nur … sondern", künstliche Dreiergruppen, Schlussfloskeln).
+- **Patrick Stüssi**, Richterswil (ZH). Kommunikation auf Deutsch, präzise, Empfehlung zuerst, dann Begründung. Kurze Absätze, Aufzählungen. Kein Eszett, immer "ss". Keine Floskeln, keine typischen KI-Schreibmuster (aufgeblasene Adjektive, "nicht nur … sondern", künstliche Dreiergruppen, Schlussfloskeln).
 - Patrick will Ehrlichkeit über Belege. Wenn etwas geraten ist, so sagen. Wenn ein Test negativ ist, so sagen.
 - **Ziel des Projekts:** autonomer Krypto-Trading-Agent mit eigener Wallet, zweistellige Jahresrendite, Verlusttoleranz bis 40% ("Spielgeld, langfristig").
 - **Ablauf der Zusammenarbeit:**
