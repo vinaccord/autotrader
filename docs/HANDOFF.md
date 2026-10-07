@@ -72,6 +72,7 @@ Der alte DEX-Agent (`autotrader/agent.py`, `adapt.py`, `security.py`, `risk.py`,
 | FOMC-Tage halbieren | kein Nutzen | verworfen |
 | 5 Coins gleichgewichtet | Sharpe +0.15, MaxDD 8 Pp schlechter | nicht übernommen |
 | 12 / 16 Coins gleichgewichtet | CAGR 15–16% statt 21% (ab 2021-06) | verworfen |
+| Trend-Sensitivitaet (7.10., Server, 2020-11 bis 2026-10, `quant.sensitivity`) | Trend / Profil 40 CAGR: Spot 10 bps +32.4% / +25.5%; Spot 20 bps +31.6% / +24.9%; Spot 40 bps +29.9% / +23.8%; Spot 10 bps + 1 Tag spaeter +28.6% / +23.0%; Spot 20 bps + 1 Tag +27.8% / +22.5%; Perp + Funding +24.3% / +20.1%; Perp + Funding + 1 Tag +20.8% / +17.7%. MaxDD Trend -28% bis -32%, Profil 40 -18.5% bis -22% | Spot bestaetigt: Kosten x4 kosten 2.5 Pp, 1 Tag Verzoegerung 3.8 Pp, Perp-Funding 8 Pp |
 | GDELT-Abruf | HTTP 429 auch mit Pause und Retry (7.10.) | abgeschaltet |
 
 **Lehre:** Mehr Regeln und mehr Coins im Gleichgewicht haben nichts gebracht. Der Ertrag kommt aus dem Trend-Filter auf BTC/ETH. Die Jahre sind sehr ungleich (2023 +42%, 2024 +52%, 2022 -4%, 2025 -1%).
@@ -271,7 +272,7 @@ Begründung:
 - GDELT: Server liefert auch mit Pause und Retry HTTP 429, Tageszeile leer. Abruf per `macro.gdelt_enabled: false` abgeschaltet (kein Backtest-Nutzen). Nachrichten kommen in Phase 3 ueber RSS.
 
 **Stand Phase 1 (7.10.):**
-- `quant/sensitivity.py` gebaut (7 vorab festgelegte Szenarien: Spot 10/20/40 bps, 1 Tag Verzoegerung, Perp mit echtem Binance-Funding). `trend_returns` hat neu `delay` und `funding`. Basis-Trend-Kosten `trend_bps: 10` entsprechen bereits Spot (7 bps Taker + Slippage); Punkt 3 und 5 aus Abschnitt 5 sind damit gerechnet, sobald Patrick den Lauf auf dem Server macht und die Zahlen hier eingetragen werden.
+- `quant/sensitivity.py` gebaut (7 vorab festgelegte Szenarien: Spot 10/20/40 bps, 1 Tag Verzoegerung, Perp mit echtem Binance-Funding). `trend_returns` hat neu `delay` und `funding`. Basis-Trend-Kosten `trend_bps: 10` entsprechen bereits Spot (7 bps Taker + Slippage). Lauf auf dem Server am 7.10. erledigt, Zahlen in Abschnitt 4; Punkt 3 und 5 aus Abschnitt 5 sind damit erledigt. Nicht abgedeckt: tatsaechliche Orderbuch-Tiefe UBTC/UETH, Abweichung des Spot-Preises zu Binance, Bridge-Risiko.
 - Offen: Ergebnis vom Server eintragen; Spot-Liquiditaet UBTC/UETH (Orderbuch-Tiefe) pruefen; `hl_exec.py`; P1-Punkte 9-11.
 
 ## 9. Entscheidungen
