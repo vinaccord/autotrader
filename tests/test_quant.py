@@ -300,6 +300,58 @@ class LedgerTests(unittest.TestCase):
         self.assertFalse(any("LEDGER" in w for w in warns))
 
 
+class SensitivityTests(unittest.TestCase):
+    def _args(self):
+        dates, ohlc, fund = synth_market(900)
+        return dates, ohlc, fund, (200, 30, 0.45, 1.0, 0.1)
+
+    def test_delay_zero_is_unchanged_and_delay_one_shifts_by_one_day(self):
+        from autotrader.quant.strategies import trend_returns
+        dates, ohlc, fund, a = self._args()
+        r0, _ = trend_returns(dates, ohlc, *a, 10)
+        r0b, _ = trend_returns(dates, ohlc, *a, 10, delay=0)
+        r1, _ = trend_returns(dates, ohlc, *a, 10, delay=1)
+        self.assertEqual(r0, r0b)
+        f0 = next(i for i, x in enumerate(r0) if x != 0)
+        f1 = next(i for i, x in enumerate(r1) if x != 0)
+        self.assertEqual(f1, f0 + 1)
+
+    def test_delay_is_causal(self):
+        from autotrader.quant.strategies import trend_returns
+        dates, ohlc, fund, a = self._args()
+        k = 600
+        o2 = dict(ohlc)
+        d = dates[k]
+        o2[d] = tuple(x * 1.3 for x in ohlc[d])
+        r, _ = trend_returns(dates, ohlc, *a, 10, delay=1)
+        r2, _ = trend_returns(dates, o2, *a, 10, delay=1)
+        self.assertEqual(r[:k], r2[:k])
+
+    def test_funding_only_charges_long_days(self):
+        from autotrader.quant.strategies import trend_returns
+        dates, ohlc, fund, a = self._args()
+        base, _ = trend_returns(dates, ohlc, *a, 10)
+        f = [0.0003] * len(dates)
+        withf, _ = trend_returns(dates, ohlc, *a, 10, funding=f)
+        for b, w in zip(base, withf):
+            if b == 0:
+                self.assertEqual(w, 0)
+            else:
+                self.assertLessEqual(w, b + 1e-15)
+        self.assertLess(sum(withf), sum(base))
+
+    def test_sensitivity_run_matches_pipeline_trend(self):
+        from autotrader.quant import sensitivity
+        dates, ohlc, fund = synth_market(1300)
+        cfg = copy.deepcopy(QCFG)
+        cfg["coins"] = ["BTC"]
+        cfg["allocator"] = {"fixed": {"carry": 0.3, "trend": 0.7}}
+        cfg["trend"]["adapt"] = False
+        rows, dev, _ = sensitivity.run(cfg, dates, {"BTC": ohlc}, {"BTC": fund})
+        self.assertEqual(len(rows), len(sensitivity.SCENARIOS))
+        self.assertLess(dev, 1e-9)
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile

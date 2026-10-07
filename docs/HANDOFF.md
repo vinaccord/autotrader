@@ -270,6 +270,10 @@ Begründung:
 - Offen: Update-Pfad (Punkt 1). Auto-Update bleibt in der Paper-Phase an und wird vor Live abgeschaltet; Umbau auf signierte Tags erst, wenn Live naht.
 - GDELT: Server liefert auch mit Pause und Retry HTTP 429, Tageszeile leer. Abruf per `macro.gdelt_enabled: false` abgeschaltet (kein Backtest-Nutzen). Nachrichten kommen in Phase 3 ueber RSS.
 
+**Stand Phase 1 (7.10.):**
+- `quant/sensitivity.py` gebaut (7 vorab festgelegte Szenarien: Spot 10/20/40 bps, 1 Tag Verzoegerung, Perp mit echtem Binance-Funding). `trend_returns` hat neu `delay` und `funding`. Basis-Trend-Kosten `trend_bps: 10` entsprechen bereits Spot (7 bps Taker + Slippage); Punkt 3 und 5 aus Abschnitt 5 sind damit gerechnet, sobald Patrick den Lauf auf dem Server macht und die Zahlen hier eingetragen werden.
+- Offen: Ergebnis vom Server eintragen; Spot-Liquiditaet UBTC/UETH (Orderbuch-Tiefe) pruefen; `hl_exec.py`; P1-Punkte 9-11.
+
 ## 9. Entscheidungen
 
 **Entschieden am 7.10.2026** (Patrick hat die Wahl an Claude delegiert, Werte in `live_plan.yaml`):

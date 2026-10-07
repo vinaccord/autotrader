@@ -53,7 +53,7 @@ def asset_returns(dates, ohlc):
     return [0.0] + [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes))]
 
 
-def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cost_bps, crash=None, event_days=None):
+def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cost_bps, crash=None, event_days=None, delay=0, funding=None):
     """Long/Flat auf SMA-Filter, Positionsgroesse per Ziel-Volatilitaet. Nur Long, Hebel hoechstens max_lev.
 
     sma_n: eine Laenge (int) oder eine Liste. Bei einer Liste ist die Position der Anteil der Laengen, bei denen der Kurs
@@ -62,7 +62,11 @@ def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cos
     event_days: Menge von Datums-Strings. Fuer diese Tage wird die Position mit crash["mult"] (oder 0.5) multipliziert;
     der Kalender ist vorab bekannt, es wird nichts aus der Zukunft abgeleitet.
 
-    Gibt (rets, last_target) zurueck. last_target ist die Zielposition nach dem Signal des letzten Tages.
+    delay: Ausfuehrungsverzoegerung in Tagen. 0 = Fill zum Schlusskurs des Signaltags (Standard), 1 = Fill erst zum Schlusskurs
+    des Folgetags (konservative Obergrenze; der echte Job laeuft rund 65 Minuten nach Tagesschluss).
+    funding: Liste (gleiche Laenge wie dates) mit Tages-Funding je Tag; eine Long-Position zahlt es (Perp-Variante). None = Spot.
+
+    Gibt (rets, last_target) zurueck. last_target ist die Zielposition nach dem Signal des letzten Tages (geplant, nicht ausgefuehrt).
     """
     n = len(dates)
     closes = [ohlc[d][3] for d in dates]
@@ -72,6 +76,8 @@ def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cos
     lens = list(sma_n) if isinstance(sma_n, (list, tuple)) else [sma_n]
     warm = max(max(lens), vol_window + 1)
     ev_mult = (crash or {}).get("event_mult", 0.5)
+    plan = []
+    held = 0.0  # tatsaechlich gehaltene Position (bei delay=0 identisch mit pos)
     for i in range(n):
         target = 0.0
         if i + 1 >= warm:
@@ -88,8 +94,11 @@ def trend_returns(dates, ohlc, sma_n, vol_window, target_vol, max_lev, band, cos
             new = target
         else:
             new = pos  # kleine Anpassungen unterdruecken, spart Kosten
+        plan.append(new)
         if i < n - 1:
-            out[i + 1] = new * ar[i + 1] - abs(new - pos) * cost_bps / 1e4
+            ex = plan[i - delay] if i - delay >= 0 else 0.0
+            out[i + 1] = ex * ar[i + 1] - abs(ex - held) * cost_bps / 1e4 - (ex * funding[i + 1] if funding else 0.0)
+            held = ex
         pos = new
     return out, pos
 
