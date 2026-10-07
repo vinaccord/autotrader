@@ -298,3 +298,63 @@ class LiveRunTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KillSwitchCliTests(unittest.TestCase):
+    def setUp(self):
+        from autotrader.quant import killswitch as k
+
+        self.k = k
+        self.t = tempfile.mkdtemp()
+        self.cfgp = os.path.join(self.t, "c.yaml")
+        with open(self.cfgp, "w") as f:
+            f.write("data_dir: data\n")
+        os.makedirs(os.path.join(self.t, "data"))
+        self.sp = os.path.join(self.t, "data", "killswitch_A_live.json")
+        k.save(self.sp, k.new_state(1000))
+        self.lines = []
+
+    def call(self, *args):
+        return self.k.cli(["--config", self.cfgp, *args], out=self.lines.append)
+
+    def test_status_missing_state_exits(self):
+        os.remove(self.sp)
+        with self.assertRaises(SystemExit):
+            self.call("status")
+
+    def test_deposit_preview_does_not_change_state_confirm_does(self):
+        self.call("flow", "--amount", "500")
+        self.assertEqual(self.k.load(self.sp)["deposits"], 1000)
+        self.call("flow", "--amount", "500", "--confirm")
+        st = self.k.load(self.sp)
+        self.assertEqual((st["hwm"], st["deposits"]), (1500, 1500))
+        self.assertTrue(os.path.exists(os.path.join(self.t, "data", "killswitch_flows.csv")))
+
+    def test_withdrawal_needs_equity_and_scales_hwm(self):
+        with self.assertRaises(SystemExit):
+            self.call("flow", "--amount", "-200", "--confirm")
+        self.call("flow", "--amount", "-200", "--equity-before", "1000", "--confirm")
+        st = self.k.load(self.sp)
+        self.assertAlmostEqual(st["hwm"], 800)
+        self.assertAlmostEqual(st["deposits"], 800)
+        # Auszahlung loest keinen Verlust aus
+        s, info = self.k.evaluate(st, 800, {"warn_dd": 0.2, "brake_dd": 0.3, "brake_release_dd": 0.2, "stop_dd": 0.4, "stop_below_deposits": 0.6, "global_stop_dd": 0.4})
+        self.assertEqual(info["level"], "normal")
+
+    def test_withdrawal_larger_than_equity_refused(self):
+        with self.assertRaises(SystemExit):
+            self.call("flow", "--amount", "-1000", "--equity-before", "900", "--confirm")
+
+    def test_reset_only_after_stop_and_with_confirm(self):
+        with self.assertRaises(SystemExit):
+            self.call("reset", "--equity", "700", "--confirm")
+        st = self.k.load(self.sp)
+        st["level"] = "stop"
+        self.k.save(self.sp, st)
+        self.call("reset", "--equity", "700")
+        self.assertEqual(self.k.load(self.sp)["level"], "stop")
+        with self.assertRaises(SystemExit):
+            self.call("reset", "--confirm")
+        self.call("reset", "--equity", "700", "--confirm")
+        st = self.k.load(self.sp)
+        self.assertEqual((st["level"], st["hwm"]), ("normal", 700))

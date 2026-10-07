@@ -90,3 +90,94 @@ def save(path, state):
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
+
+
+# --- Kommandozeile: Status, Ein-/Auszahlung verbuchen, Neustart nach Stopp -------------------------------------------
+FLOW_FIELDS = ["ts", "wallet", "mode", "kind", "amount", "equity_before", "hwm_before", "hwm_after", "deposits_after"]
+
+
+def _flow_log(path, row):
+    import csv
+
+    first = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=FLOW_FIELDS)
+        if first:
+            w.writeheader()
+        w.writerow(row)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def cli(argv=None, out=print):
+    """python -m autotrader.quant.killswitch status|flow|reset --config quant_40.yaml [--mode live|dryrun] [--wallet A]
+
+    flow: Einzahlung (--amount 500) oder Auszahlung (--amount -200 --equity-before KONTOWERT). Ohne --confirm nur Vorschau.
+    Reihenfolge: ERST verbuchen, DANN einzahlen/auszahlen und keinen Live-Lauf dazwischen. Sonst zaehlt eine Einzahlung doppelt.
+    reset: nur nach Stopp und nur auf Patricks ausdruecklichen Befehl (--equity AKTUELLER KONTOWERT --confirm).
+    """
+    import argparse
+    import datetime as dt
+
+    import yaml
+
+    ap = argparse.ArgumentParser(prog="killswitch")
+    ap.add_argument("action", choices=["status", "flow", "reset"])
+    ap.add_argument("--config", default="quant_40.yaml")
+    ap.add_argument("--mode", choices=["live", "dryrun"], default="live")
+    ap.add_argument("--wallet", default="A")
+    ap.add_argument("--amount", type=float)
+    ap.add_argument("--equity-before", type=float)
+    ap.add_argument("--equity", type=float)
+    ap.add_argument("--confirm", action="store_true")
+    a = ap.parse_args(argv)
+    with open(a.config, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    d = os.path.join(os.path.dirname(os.path.abspath(a.config)), cfg["data_dir"])
+    path = os.path.join(d, f"killswitch_{a.wallet}_{a.mode}.json")
+    st = load(path)
+    if st is None:
+        raise SystemExit(f"Kein Zustand unter {path}. Er entsteht beim ersten Lauf mit diesem Modus.")
+    out(f"Zustand {a.wallet}/{a.mode}: Stufe {st['level']}, Hoechststand {st['hwm']:,.2f}, Einzahlungen {st['deposits']:,.2f}")
+    if a.action == "status":
+        return 0
+    ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if a.action == "flow":
+        if a.amount is None or a.amount == 0:
+            raise SystemExit("--amount fehlt (positiv = Einzahlung, negativ = Auszahlung).")
+        if a.amount < 0 and a.equity_before is None:
+            raise SystemExit("Auszahlung braucht --equity-before (Kontowert unmittelbar vor der Auszahlung).")
+        try:
+            new = record_flow(st, a.equity_before if a.equity_before is not None else 0.0, a.amount)
+        except ValueError as e:
+            raise SystemExit(str(e))
+        kind = "Einzahlung" if a.amount > 0 else "Auszahlung"
+        out(f"{kind} {abs(a.amount):,.2f}: Hoechststand {st['hwm']:,.2f} -> {new['hwm']:,.2f}, Einzahlungen {st['deposits']:,.2f} -> {new['deposits']:,.2f}")
+        if not a.confirm:
+            out("Nur Vorschau. Mit --confirm verbuchen (vor der echten Ueberweisung, kein Live-Lauf dazwischen).")
+            return 0
+        save(path, new)
+        _flow_log(os.path.join(d, "killswitch_flows.csv"), {"ts": ts, "wallet": a.wallet, "mode": a.mode, "kind": kind, "amount": a.amount,
+                                                            "equity_before": a.equity_before if a.equity_before is not None else "", "hwm_before": st["hwm"],
+                                                            "hwm_after": new["hwm"], "deposits_after": new["deposits"]})
+        out("Verbucht.")
+        return 0
+    # reset
+    if st["level"] != "stop":
+        raise SystemExit("Reset nur nach Stopp. Aktuelle Stufe ist nicht 'stop'.")
+    if a.equity is None or a.equity <= 0:
+        raise SystemExit("--equity (aktueller Kontowert, positiv) fehlt.")
+    new = reset(st, a.equity)
+    out(f"Neustart: Hoechststand {st['hwm']:,.2f} -> {new['hwm']:,.2f}, Stufe stop -> normal")
+    if not a.confirm:
+        out("Nur Vorschau. Mit --confirm ausfuehren, nur auf Patricks ausdruecklichen Befehl.")
+        return 0
+    save(path, new)
+    _flow_log(os.path.join(d, "killswitch_flows.csv"), {"ts": ts, "wallet": a.wallet, "mode": a.mode, "kind": "Reset", "amount": "", "equity_before": a.equity,
+                                                        "hwm_before": st["hwm"], "hwm_after": new["hwm"], "deposits_after": new["deposits"]})
+    out("Neustart verbucht.")
+    return 0
+
+
+if __name__ == "__main__":
+    cli()
