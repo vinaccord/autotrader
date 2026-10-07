@@ -190,7 +190,7 @@ def run(cfg, plan, session=None, now=None, log=print, address=None):
     dates, ohlc, fund = data.load_all(cfg)
     res = pipeline.run(cfg, dates, ohlc, fund)
     sig = pipeline.signal(cfg, dates, ohlc, fund, res)
-    ew = spill.effective_weights(cfg, dates, ohlc, fund, "spill")
+    ew = spill.effective_weights(cfg, dates, ohlc, fund, "spill", res=res)
     coins = cfg["coins"]
     exposures = {c: v["target_exposure"] for c, v in sig["trend"].items()}
     prices, sz, perp = fetch_market(s)

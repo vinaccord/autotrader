@@ -13,15 +13,21 @@ def carry_returns(dates, fund, ohlc, lookback, entry_apr, exit_apr, lev, costs):
 
     Rendite pro Tag = eff * Funding des Tages, eff = lev/(lev+1) (Kapital teilt sich in Spot-Bein und Perp-Margin).
     Gibt (rets, info) zurueck. info["position"] ist der Zielzustand nach dem Signal des letzten Tages (fuer Live-Signale).
-    liq_flags zaehlt Tage, an denen der Tageshoechstkurs ueber der Liquidationsschwelle des Short-Beins lag.
-    Das wird nur gezaehlt, nicht als Verlust verbucht.
+
+    Margin-Pflege (seit 7.10.): Referenzpreis ref = Schlusskurs bei Eintritt bzw. beim letzten Margin-Ausgleich. Bewegt sich der
+    Schlusskurs um mindestens 0.5/lev gegen ref (bei Hebel 2: 25%), wird ausgeglichen (Spot-Gewinn in die Perp-Margin schieben oder umgekehrt):
+    Kosten eff * Bewegung * (Spot-Gebuehr + Slippage), ref wird neu gesetzt (info["rebalances"]).
+    Liegt das Tageshoch ueber ref * (1 + 0.9/lev), wird das Short-Bein liquidiert: Verlust der Margin (1/(lev+1) des Kapitals, ohne
+    Gutschrift des Spot-Gewinns, bewusst konservativ) plus Ausstiegskosten, Position danach flat (info["liq_flags"]).
     """
     n = len(dates)
     eff = lev / (lev + 1)
     round_trip = eff * (costs["spot_fee_bps"] + costs["perp_fee_bps"] + 2 * costs["slippage_bps"]) / 1e4
+    rebal_cost = eff * (costs["spot_fee_bps"] + costs["slippage_bps"]) / 1e4
     rets = [0.0] * n
     flags = [0] * n  # 1 an Tagen, an denen die Carry-Position gehalten wird
-    pos, entries, liq, days_in = 0, 0, 0, 0
+    pos, entries, liq, days_in, rebalances = 0, 0, 0, 0, 0
+    ref = None
     last_apr = None
     for i in range(n):
         new = pos
@@ -36,16 +42,28 @@ def carry_returns(dates, fund, ohlc, lookback, entry_apr, exit_apr, lev, costs):
             if new != pos:
                 r -= round_trip  # Eintritt oder Austritt: beide Beine handeln
                 entries += 1 if new == 1 else 0
+                if new == 1:
+                    ref = ohlc[dates[i]][3]
             if new == 1:
                 r += eff * fund.get(dates[i + 1], 0.0)
                 days_in += 1
-                prev_close = ohlc[dates[i]][3]
-                if ohlc[dates[i + 1]][1] / prev_close - 1 >= 0.9 / lev:
+                if ohlc[dates[i + 1]][1] / ref - 1 >= 0.9 / lev:
                     liq += 1
+                    r -= 1.0 / (lev + 1) + round_trip
+                    flags[i + 1] = 1
+                    rets[i + 1] = r
+                    pos = 0
+                    continue
+                close = ohlc[dates[i + 1]][3]
+                mv = close / ref - 1
+                if abs(mv) >= 0.5 / lev:
+                    r -= abs(mv) * rebal_cost
+                    ref = close
+                    rebalances += 1
             rets[i + 1] = r
             flags[i + 1] = new
         pos = new
-    return rets, {"flags": flags, "entries": entries, "liq_flags": liq, "days_in": days_in, "position": pos, "trailing_apr": last_apr}
+    return rets, {"flags": flags, "entries": entries, "liq_flags": liq, "days_in": days_in, "rebalances": rebalances, "position": pos, "trailing_apr": last_apr}
 
 
 def asset_returns(dates, ohlc):

@@ -42,7 +42,7 @@ def combine(carry_rets, carry_flags, trend_rets, w_carry, mode):
 
 
 def carry_parts(cfg, dates, ohlc, fund):
-    """Carry je Coin mit den Standardparametern: (rets, flags, positionen_nach_letztem_signal)."""
+    """Carry je Coin mit den Standardparametern: (rets, flags, positionen_nach_letztem_signal). Nur fuer Vergleiche ohne Walk-Forward."""
     c = cfg["carry"]
     p = c["default"]
     cr, cf, pos = {}, {}, {}
@@ -52,20 +52,56 @@ def carry_parts(cfg, dates, ohlc, fund):
     return cr, cf, pos
 
 
+def carry_wf_parts(cfg, dates, ohlc, fund, res):
+    """Carry je Coin mit den Walk-Forward-Parametern aus res (dieselben wie im Signal und im Backtest).
+
+    -> (rets, flags, positionen): rets/flags ausgerichtet auf res['dates'], Positionen nach dem Signal des letzten Tages.
+    Parameterwechsel kosten wie in walk_forward switch_cost_bps am ersten Tag des neuen Fensters (je Coin, im Korb-Mittel identisch)."""
+    c = cfg["carry"]
+    switch = cfg["walkforward"]["switch_cost_bps"] / 1e4
+    chosen = res["carry_chosen"]
+    n = len(dates)
+    cache = {}
+
+    def parts(params, coin):
+        key = (tuple(sorted(params.items())), coin)
+        if key not in cache:
+            cache[key] = carry_returns(dates, fund[coin], ohlc[coin], params["lookback"], params["entry_apr"], params["exit_apr"], c["lev"], cfg["costs"])
+        return cache[key]
+
+    cr = {x: [] for x in cfg["coins"]}
+    cf = {x: [] for x in cfg["coins"]}
+    prev = None
+    for k, (t, params) in enumerate(chosen):
+        end = chosen[k + 1][0] if k + 1 < len(chosen) else n
+        key = tuple(sorted(params.items()))
+        for x in cfg["coins"]:
+            r, info = parts(params, x)
+            seg = list(r[t:end])
+            if prev is not None and prev != key and seg:
+                seg[0] -= switch
+            cr[x] += seg
+            cf[x] += info["flags"][t:end]
+        prev = key
+    last = chosen[-1][1]
+    pos = {x: parts(last, x)[1]["position"] for x in cfg["coins"]}
+    return cr, cf, pos
+
+
 def carry_weight(cfg):
     return cfg["allocator"]["fixed"]["carry"] if cfg["allocator"].get("fixed") else 0.3
 
 
 def spill_series(cfg, dates, ohlc, fund, res, mode="spill"):
-    """Renditen des Profils mit Spill, ausgerichtet auf res['dates']."""
-    cr, cf, _ = carry_parts(cfg, dates, ohlc, fund)
-    off = res["offset"]
-    return combine({k: v[off:] for k, v in cr.items()}, {k: v[off:] for k, v in cf.items()}, res["trend"], carry_weight(cfg), mode)
+    """Renditen des Profils mit Spill, ausgerichtet auf res['dates'], Carry mit Walk-Forward-Parametern."""
+    cr, cf, _ = carry_wf_parts(cfg, dates, ohlc, fund, res)
+    return combine(cr, cf, res["trend"], carry_weight(cfg), mode)
 
 
-def effective_weights(cfg, dates, ohlc, fund, mode="spill"):
-    """Gewichte nach dem letzten Signal: aktive Carry-Teile bleiben Carry, flache gehen (je nach Modus) an den Trend."""
-    _, _, pos = carry_parts(cfg, dates, ohlc, fund)
+def effective_weights(cfg, dates, ohlc, fund, mode="spill", res=None):
+    """Gewichte nach dem letzten Signal: aktive Carry-Teile bleiben Carry, flache gehen (je nach Modus) an den Trend.
+    Mit res: Carry-Positionen aus den Walk-Forward-Parametern (wie das Signal). Ohne res: Standardparameter."""
+    pos = carry_wf_parts(cfg, dates, ohlc, fund, res)[2] if res else carry_parts(cfg, dates, ohlc, fund)[2]
     w = carry_weight(cfg)
     slice_w = w / len(pos)
     active = [c for c, v in pos.items() if v]
@@ -79,13 +115,7 @@ def effective_weights(cfg, dates, ohlc, fund, mode="spill"):
 def run(cfg, log=print):
     dates, ohlc, fund = data.load_all(cfg)
     res = pipeline.run(cfg, dates, ohlc, fund)
-    off = res["offset"]
-    c = cfg["carry"]
-    p = c["default"]
-    cr, cf = {}, {}
-    for coin in cfg["coins"]:
-        r, info = carry_returns(dates, fund[coin], ohlc[coin], p["lookback"], p["entry_apr"], p["exit_apr"], c["lev"], cfg["costs"])
-        cr[coin], cf[coin] = r[off:], info["flags"][off:]
+    cr, cf, _ = carry_wf_parts(cfg, dates, ohlc, fund, res)
     w_carry = cfg["allocator"]["fixed"]["carry"] if cfg["allocator"].get("fixed") else 0.3
     d = res["dates"]
     active = sum(sum(cf[k]) for k in cf) / (len(cf) * len(d))

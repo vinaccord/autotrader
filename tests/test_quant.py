@@ -608,6 +608,62 @@ class HlExecTests(unittest.TestCase):
             data_mod.load_all, pl.signal = orig_load, orig_sig
 
 
+class P1Tests(unittest.TestCase):
+    def test_carry_rebalances_on_drift_and_liquidates_on_spike(self):
+        dates = make_dates(120)
+        fund = {d: 0.0005 for d in dates}
+        up = make_ohlc(dates, [0.0] * 20 + [0.02] * 60 + [0.0] * 40)  # stetiger Anstieg ueber 60 Tage
+        r, info = carry_returns(dates, fund, up, 7, 0.05, 0.0, 2, COSTS)
+        self.assertGreaterEqual(info["rebalances"], 2)
+        self.assertEqual(info["liq_flags"], 0)
+        r0, _ = carry_returns(dates, fund, up, 7, 0.05, 0.0, 2, ZERO_COSTS)
+        self.assertEqual(sum(1 for x in r0 if x < 0), 0)  # ohne Kosten nie ein Verlusttag
+        spike = [0.0] * 120
+        spike[50] = 0.6
+        r, info = carry_returns(dates, fund, make_ohlc(dates, spike), 7, 0.05, 0.0, 2, ZERO_COSTS)
+        self.assertEqual(info["liq_flags"], 1)
+        self.assertLess(min(r), -0.30)  # Margin-Verlust 1/(lev+1) = 33%
+
+    def test_spill_uses_walkforward_parameters(self):
+        from autotrader.quant import spill
+        d1, o1, f1 = synth_market(1300, seed=3)
+        d2, o2, f2 = synth_market(1300, seed=4)
+        cfg = copy.deepcopy(QCFG)
+        cfg["coins"] = ["BTC", "ETH"]
+        ohlc, fund = {"BTC": o1, "ETH": o2}, {"BTC": f1, "ETH": f2}
+        res = pipeline.run(cfg, d1, ohlc, fund)
+        cr, cf, pos = spill.carry_wf_parts(cfg, d1, ohlc, fund, res)
+        self.assertEqual(len(cr["BTC"]), len(res["dates"]))
+        mean_rets = [(a + b) / 2 for a, b in zip(cr["BTC"], cr["ETH"])]
+        for a, b in zip(mean_rets, res["carry"]):
+            self.assertAlmostEqual(a, b, places=12)  # Korb aus Einzelreihen == Walk-Forward-Carry
+        cp = res["carry_chosen"][-1][1]
+        for x in cfg["coins"]:
+            _, info = carry_returns(d1, fund[x], ohlc[x], cp["lookback"], cp["entry_apr"], cp["exit_apr"], cfg["carry"]["lev"], cfg["costs"])
+            self.assertEqual(pos[x], info["position"])  # gleiche Position wie das Signal
+        ew = spill.effective_weights(cfg, d1, ohlc, fund, "spill", res=res)
+        sig = pipeline.signal(cfg, d1, ohlc, fund, res)
+        self.assertEqual(sorted(ew["carry_aktiv"]), sorted(c for c, v in sig["carry"].items() if v["in_position"]))
+
+    def test_load_all_keeps_days_with_missing_funding(self):
+        import tempfile
+        from autotrader.quant import data as dm
+        tmp = tempfile.mkdtemp()
+        cfg = {"data_dir": tmp, "coins": ["BTC"], "source": "binance"}
+        dates = make_dates(10)
+        ts = lambda d: int(dt.datetime.fromisoformat(d).replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
+        dm.save_rows(dm.cache_path(cfg, "prices", "BTC"), ["t", "o", "h", "l", "c", "v"], [(ts(d), 1, 2, 1, 1.5, 9) for d in dates])
+        have = [d for k, d in enumerate(dates) if k not in (4, 9)]  # Luecke in der Mitte und am Ende
+        dm.save_rows(dm.cache_path(cfg, "funding", "BTC"), ["t", "rate"], [(ts(d) + 3600_000, 0.0001) for d in have])
+        logs = []
+        out_dates, ohlc, fund = dm.load_all(cfg, log=logs.append)
+        self.assertIn(dates[4], out_dates)  # Luecke bleibt im Kalender
+        self.assertEqual(fund["BTC"][dates[4]], 0.0)
+        self.assertEqual(out_dates[-1], dates[8])  # Ende ohne Funding wird abgeschnitten
+        self.assertTrue(any("Funding-Luecke" in l for l in logs))
+        self.assertTrue(any("Funding endet" in l for l in logs))
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile

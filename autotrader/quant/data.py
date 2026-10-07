@@ -210,13 +210,33 @@ def fetch_all(cfg, log=print, session=None):
         raise SystemExit("Kein Coin konnte geladen werden.")
 
 
-def load_all(cfg):
-    """-> (dates, ohlc{coin:{date:(o,h,l,c)}}, funding{coin:{date:rate_sum}}) auf gemeinsamem Kalender."""
+def load_all(cfg, log=print):
+    """-> (dates, ohlc{coin:{date:(o,h,l,c)}}, funding{coin:{date:rate_sum}}).
+
+    Kalender = Tage, an denen alle Coins einen Preis haben, ab dem ersten und bis zum letzten Funding-Tag aller Coins.
+    Fehlt innerhalb davon ein Funding-Tag, bleibt der Tag im Kalender und das Funding zaehlt 0 (statt zwei Tage zu einer Rendite zu verschmelzen).
+    Luecken im Preis-Kalender werden gemeldet (die Rendite ueber die Luecke ist dann eine Mehrtages-Rendite)."""
     ohlc = {c: load_ohlc(cache_path(cfg, "prices", c)) for c in cfg["coins"]}
-    fund = {c: load_funding(cache_path(cfg, "funding", c)) for c in cfg["coins"]}
+    fund = {c: dict(load_funding(cache_path(cfg, "funding", c))) for c in cfg["coins"]}
     common = None
     for c in cfg["coins"]:
-        ds = set(ohlc[c]) & set(fund[c])
+        ds = set(ohlc[c])
         common = ds if common is None else common & ds
     dates = sorted(common or [])
+    if not dates or any(not fund[c] for c in cfg["coins"]):
+        return [], ohlc, fund
+    lo = max(min(fund[c]) for c in cfg["coins"])
+    hi = min(max(fund[c]) for c in cfg["coins"])
+    if dates[-1] > hi:
+        log(f"Funding endet {hi}, Preise bis {dates[-1]}: Kalender endet am {hi}")
+    dates = [d for d in dates if lo <= d <= hi]
+    for c in cfg["coins"]:
+        miss = [d for d in dates if d not in fund[c]]
+        if miss:
+            log(f"Funding-Luecke {c}: {len(miss)} Tage (z.B. {miss[0]}) zaehlen als 0")
+            for d in miss:
+                fund[c][d] = 0.0
+    gaps = [(a, b) for a, b in zip(dates, dates[1:]) if (dt.date.fromisoformat(b) - dt.date.fromisoformat(a)).days > 1]
+    if gaps:
+        log(f"Preis-Luecken im Kalender: {len(gaps)} (z.B. {gaps[0][0]} bis {gaps[0][1]}), Rendite dort ueber mehrere Tage")
     return dates, ohlc, fund

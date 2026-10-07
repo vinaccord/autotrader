@@ -59,7 +59,7 @@ def build_report(main, core, paper_start, prev_state, today=None, ledger_path=No
             try:
                 from . import spill
 
-                ew = spill.effective_weights(p["cfg"], p["dates"], p["ohlc"], p["fund"], "spill")
+                ew = spill.effective_weights(p["cfg"], p["dates"], p["ohlc"], p["fund"], "spill", res=res)
                 p["spill_w"] = ew
                 out.append(f"  Effektiv mit Spill: Trend {ew['trend'] * 100:.0f}%, Carry {ew['carry'] * 100:.0f}% (aktiv: {', '.join(ew['carry_aktiv']) or '-'}; flat: {', '.join(ew['carry_flat']) or '-'}), Cash {ew['cash'] * 100:.0f}%")
             except Exception as e:
