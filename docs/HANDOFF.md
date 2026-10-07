@@ -4,10 +4,10 @@ Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst 
 
 ---
 
-## 0. Einstieg (Stand 7.10.2026, 11:00, Commit nach 0f94226)
+## 0. Einstieg (Stand 7.10.2026, 13:30, Commit nach 25ba9f3)
 
 **Kurzstand**
-- Phase 0 erledigt, Phase 1 bis auf Live-Teile erledigt (Details am Ende von Abschnitt 8). 96 Tests grün.
+- Phase 0 erledigt, Phase 1 bis auf Live-Teile erledigt (Details am Ende von Abschnitt 8), Phase 2 erledigt (negativ). 109 Tests grün.
 - Auf dem Server laeuft taeglich 01:05 UTC: Daten, Backtest, Signale, Ledger (`ledger.csv`), Trockenlauf-Ausfuehrung mit Papierkonto (`paper_account_A.json`, `orders_dryrun.csv`, `killswitch_A_dryrun.json`), Fear & Greed, Tagesbericht per ntfy, Healthchecks-Ping.
 - Patrick hat am 7.10. ausgefuehrt: Update, `harden.sh` (Ausgabe nicht gesehen, er meldet "alles erledigt"), Healthchecks-URL in `.env`, Ledger und Dry-Run-Testdateien geloescht fuer sauberen Start.
 - Aktuelle Backtest-Zahlen: Abschnitt 4, Zeile "Nach P1-Korrekturen".
@@ -18,11 +18,14 @@ Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst 
 - Folgerung (Empfehlung an Patrick, Entscheid liegt bei ihm): **Wallet B "Explorer" (Querschnitts-Momentum) wird nicht gebaut**, `live_plan.yaml` laesst B auf `enabled: false`. Das Meta-Allokator-Konzept (6.1) entfaellt vorerst: mit zwei Strategien (Trend, Carry) bleiben feste Gewichte. Die Scout-Pipeline fuer neue Tokens (6.4) ist nach diesen Befunden das riskanteste Stueck: nur als Beobachtungsliste und Alarm, **keine automatische Anlage**; ein Papier-Test mit vorab festgelegter Bewertung waere der einzige akzeptable Weg zu echtem Geld.
 - Nachrichten (6.5): bisher kein messbarer Nutzen (Fear & Greed, FOMC, Crash-Regel); Feeds nur als Information im Tagesbericht.
 
+**Gegenpruefung Phase 2 (Opus, 7.10. Mittag):** `xstrend` und `xsmom` geprueft: Stablecoins und Hebel-Token ausgeschlossen, Position Tag i wirkt ab i+1, Vola close-to-close, Vergleich bei gleichen Kosten fair. Ergebnis gilt. Kleinigkeit ohne Einfluss auf das Fazit: `xstrend.positions` zaehlt SMA-Tage ueber vorhandene Kerzen, nicht Kalendertage (nur bei Coins mit Luecken relevant).
+
 **Naechste Aufgaben (Reihenfolge)**
+0. **Go/No-Go-Kriterien fuer den 1.12. vorab festlegen** und Patrick zur Bestaetigung vorlegen, bevor weitere Papier-Wochen laufen. `docs/STRATEGIE.md` Abschnitt 8 ist veraltet (adaptiv, Hebel 2, Kill-Switch -15%) und wird ersetzt. 8 Wochen Papier sagen statistisch nichts ueber die Rendite; Kriterien darum vor allem betrieblich: keine verpassten Tageslaeufe (Healthchecks), Papier-Fills gegen Backtest-Positionen (Abweichung je Tag unter einer festen Schwelle), Ledger lueckenlos, Kill-Switch und Sicherungen mindestens einmal per Test ausgeloest, Soll/Ist-Abgleich gebaut. Rendite nur als Plausibilitaet (Papier innerhalb einer vorab genannten Bandbreite um den Backtest derselben Tage). Startbetrag und Kill-Switch-Stufen aus `live_plan.yaml` uebernehmen.
 1. Papierbetrieb laufen lassen (seit 6.10., Entscheidung ueber Live frueh. 1.12.2026). Tagesbericht und Ledger beobachten. Keine Strategie-Aenderungen im Papierbetrieb, sonst ist der Track-Record wertlos.
 2. Live-Vorbereitung ohne Geld: `hl_exec.py` um Order-Senden ueber das offizielle Hyperliquid-SDK erweitern (Version festnageln, nur nach Patricks Freigabe und nur testweise mit sehr kleinem Betrag), Soll/Ist-Abgleich nach Ausfuehrung, Kontowert-Abruf mit echter Adresse pruefen, Mindestorderwert in der Doku pruefen.
 3. Carry-Ausfuehrung (Spot long + Perp short) bauen, erst wenn Carry im Papierbetrieb relevant wird (aktuell flat, Funding 4.6 bis 5.0% p.a. unter der Einstiegsschwelle).
-4. P0/P1-Reste: Update-Pfad haerten (signierte Tags, Abschnitt 5 Punkt 1), ntfy absichern (Punkt 8), Funding-Timing Binance gegen Hyperliquid (Punkt 12).
+4. P0/P1-Reste: Update-Pfad haerten (signierte Tags, Abschnitt 5 Punkt 1), ntfy absichern (Punkt 8), Funding-Timing Binance gegen Hyperliquid (Punkt 12). **Harte Reihenfolge:** Update-Pfad gehaertet und Auto-Update als root aus, bevor irgendein Agent-Key auf den Server kommt. Das gilt auch fuer den kleinen SDK-Test aus Punkt 2.
 5. Steuer-Export als CSV, Steuerberatung (Schweiz) vor Live.
 6. Nur mit neuem, vorab begruendetem Edge: weitere Strategien testen. Methode wie in Phase 2 festhalten: Varianten vorab zaehlen, ueberlebensfreie Daten, Kosten x2, Datenpruefung, negative Ergebnisse melden.
 
@@ -301,7 +304,7 @@ Begründung:
 | 1 | Wochen 1–4 | Spot-Liquidität UBTC/UETH prüfen, Trend-Backtest mit Spot-Kosten und Perp-Funding-Vergleich; `hl_exec.py` im Trockenlauf mit Kill-Switch nach 7.2; Verzögerungs-Sensitivität; P1-Punkte 9–11 |
 | 2 | **erledigt 7.10., negativ** | (Ergebnis: siehe Abschnitt 0 und 4) Strategie-Bibliothek, dynamisches Universum, Querschnitts-Momentum mit überlebensfreien Daten, Meta-Allokator; alles in den Ledger |
 | 3 | **zurueckgestellt** | (nur Beobachtungsliste/Alarm, keine automatische Anlage, siehe Abschnitt 0) Scout-Pipeline (Hyperliquid neue Perps/Spot, CoinGecko Trending/Kategorien, GoPlus, LLM-Zusammenfassung über Groq); Nachrichten-Feeds aus 6.5 in den Tagesbericht |
-| 4 | ab ca. 1.12.2026, nur mit Patricks Freigabe | Wallet A klein live; Split nach 6.2, sobald Explorer bestanden hat und 10'000 USDC erreicht sind |
+| 4 | ab ca. 1.12.2026, nur mit Patricks Freigabe | Wallet A klein live. Split nach 6.2 entfaellt vorerst (Explorer nach Phase 2 nicht gebaut); Wallet A traegt alles |
 
 **Stand Phase 0 (7.10., Sonnet 5.5):**
 - Ledger gebaut (`quant/ledger.py`, `data/quant/ledger.csv`, vom Tagesbericht geschrieben, Test `LedgerTests`). Auf dem Server verifiziert (7.10.).
@@ -319,7 +322,7 @@ Begründung:
 ## 9. Entscheidungen
 
 **Entschieden am 7.10.2026** (Patrick hat die Wahl an Claude delegiert, Werte in `live_plan.yaml`):
-1. Split: zwei Wallets, 70/30, Auslöser Explorer bestanden + 10'000 USDC; keine Kaskade; dritte Wallet erst ab 100'000 USDC auf zweiter Plattform (6.2).
+1. Split: zwei Wallets, 70/30, Auslöser Explorer bestanden + 10'000 USDC; keine Kaskade; dritte Wallet erst ab 100'000 USDC auf zweiter Plattform (6.2). **Stand 7.10.: ruht**, weil der Explorer in Phase 2 negativ war; lebt nur wieder auf, wenn eine neue Strategie die Methode aus Abschnitt 0 Punkt 6 besteht.
 2. Wallet B auf derselben Plattform (Hyperliquid), eigene Adresse und eigener Agent-Key (6.2).
 3. Trend über Spot auf Hyperliquid (UBTC/UETH), nicht über Perps (7.1).
 4. Kill-Switch gestuft -20/-30/-40% ab Höchststand (7.2).
