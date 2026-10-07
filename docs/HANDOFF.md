@@ -1,8 +1,37 @@
 # Briefing für die nächste Session (Stand 7. Oktober 2026)
 
-Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst ganz lesen, dann `docs/STRATEGIE.md`, dann den Code.
+Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst Abschnitt 0, dann den Rest ganz lesen, dann `docs/STRATEGIE.md`, dann den Code.
 
 ---
+
+## 0. Einstieg (Stand 7.10.2026, 11:00, Commit nach 0f94226)
+
+**Kurzstand**
+- Phase 0 erledigt, Phase 1 bis auf Live-Teile erledigt (Details am Ende von Abschnitt 8). 96 Tests grün.
+- Auf dem Server laeuft taeglich 01:05 UTC: Daten, Backtest, Signale, Ledger (`ledger.csv`), Trockenlauf-Ausfuehrung mit Papierkonto (`paper_account_A.json`, `orders_dryrun.csv`, `killswitch_A_dryrun.json`), Fear & Greed, Tagesbericht per ntfy, Healthchecks-Ping.
+- Patrick hat am 7.10. ausgefuehrt: Update, `harden.sh` (Ausgabe nicht gesehen, er meldet "alles erledigt"), Healthchecks-URL in `.env`, Ledger und Dry-Run-Testdateien geloescht fuer sauberen Start.
+- Aktuelle Backtest-Zahlen: Abschnitt 4, Zeile "Nach P1-Korrekturen".
+
+**Naechste Aufgabe: Phase 2, Schritt fuer Schritt**
+1. **Pruefen, ob Binance Data Vision ausgelistete Coins enthaelt.** Ungeprueft, nur Annahme. Patrick fuehrt auf dem Server eine Abfrage der S3-Liste aus (Prefix `data/spot/monthly/klines/`), gesucht werden z.B. `LUNAUSDT`, `FTTUSDT`, `SRMUSDT`. Die genaue Listen-URL vorher in der Doku bzw. auf data.binance.vision nachsehen, nicht raten. Ergebnis Patrick zeigen.
+2. **Fallen Coins fehlen:** Patrick sagen, dass jedes Mehr-Coin-Ergebnis dann zu optimistisch ist, und das so beschriften. Nicht stillschweigend weiterbauen.
+3. **`quant/universe_data.py`:** Tageskerzen aller USDT-Spot-Paare als Monats-ZIPs laden, Checksummen pruefen, fortsetzbar (Abbruch/Neustart), Stablecoins und gehebelte Token (UP/DOWN/BULL/BEAR) ausschliessen. Ablage `data/quant_universe/`. Server hat 2 GB RAM: Datei fuer Datei verarbeiten. Lauf dauert vermutlich lange: Patrick mit `nohup` oder als einmaligen systemd-Lauf starten lassen.
+4. **Universum zeitpunktgenau** nach Abschnitt 6.3: nur Daten bis zum Signaltag (Volumen trailing, Mindestalter seit Listing). Test auf Lookahead.
+5. **Querschnitts-Momentum** (6.1, 6.6): Varianten vorab festlegen und im Bericht zaehlen, Kosten x2, gleiche Periode wie Profil 40, Vergleich mit Trend BTC/ETH. Faellt es schlechter aus: so melden, nicht einbauen.
+6. Erst bei positivem Ergebnis: Meta-Allokator und Wallet B (Explorer) im Papierbetrieb.
+
+**Daneben offen (kleiner)**
+- P1 12: Funding-Timing Binance vs. Hyperliquid (echtes Hyperliquid-Funding ueber `fundingHistory`).
+- Kontowert-Abruf `spotClearinghouseState` ist nur aus der Doku gebaut; erst mit echter Adresse pruefbar.
+- ntfy-Thema ist oeffentlich (P0 8), vor Live loesen.
+
+**Lehren aus der Gegenpruefung am 7.10. (Opus hat Sonnets Zusammenfassung geprueft)**
+- Beispiele muessen die Aussage tragen: "2025 und 2026 nicht zweistellig" war falsch, 2026 lag bei +12.5%. Schwache Jahre sind 2022 (-3.7%) und 2025 (-1.4%).
+- Ursachen nur behaupten, wenn einzeln gemessen. Aendert ein Commit mehrere Dinge, heisst es "vermutlich".
+- Den Ertrag richtig zuordnen: Trend BTC/ETH bringt etwa die Rendite von Buy-and-Hold (+32.4% gegen +33.5%), der Nutzen des Filters ist der kleinere Verlust (-28% statt -76%).
+- Bezugsgroesse nennen: Carry +7% gilt fuer den Carry-Teil allein, Beitrag zum Profil rund 2 Pp.
+- Schaetzungen als Schaetzung kennzeichnen.
+
 
 ## 1. Auftraggeber und Arbeitsweise
 
@@ -14,7 +43,7 @@ Dieses Dokument ist die Übergabe an das Modell, das die Arbeit fortsetzt. Erst 
   - Der Server holt den Code täglich um 00:50 UTC (`quant-update.timer`). Sofort: Patrick führt `sudo systemctl start quant-update.service` aus.
   - Patrick führt Befehle per SSH aus und schickt Screenshots. Befehle immer vollständig und kopierbar geben, mit Hinweis, in welchem Fenster (Windows-cmd oder SSH `ubuntu@...`). Er hat sich mehrmals im Fenster vertan.
   - Die Claude-Sandbox erreicht Binance, Hyperliquid, GDELT, alternative.me **nicht**. Alles Netzwerk-Abhängige wird mit Fakes getestet und erst auf dem Server echt geprüft. Das jedes Mal sagen.
-  - Tests: `python3 -m unittest discover -s tests` (72 Tests, alle grün am 7.10.).
+  - Tests: `python3 -m unittest discover -s tests` (96 Tests, alle grün am 7.10.).
   - Commits mit den Attribution-Zeilen aus dem System-Reminder.
 
 ## 2. Infrastruktur
@@ -267,17 +296,17 @@ Begründung:
 | 4 | ab ca. 1.12.2026, nur mit Patricks Freigabe | Wallet A klein live; Split nach 6.2, sobald Explorer bestanden hat und 10'000 USDC erreicht sind |
 
 **Stand Phase 0 (7.10., Sonnet 5.5):**
-- Ledger gebaut (`quant/ledger.py`, `data/quant/ledger.csv`, vom Tagesbericht geschrieben, Test `LedgerTests`). Offen: auf dem Server verifizieren, nach dem ersten Lauf nach Update.
-- Dead-Man-Switch im Code (`HC_PING_URL` in `.env`, Ping am Ende von `quant_daily.sh`, `/fail` bei Fehlern). Offen: Patrick legt Healthchecks-Check an (Periode 1 Tag, Grace 12 h) und setzt die URL.
-- Haertung als `deploy/harden.sh` (ufw, fail2ban, Passwort-Login aus, GitHub-Host-Key aus api.github.com/meta, Logrotate). Offen: Patrick fuehrt es auf dem Server aus.
+- Ledger gebaut (`quant/ledger.py`, `data/quant/ledger.csv`, vom Tagesbericht geschrieben, Test `LedgerTests`). Auf dem Server verifiziert (7.10.).
+- Dead-Man-Switch im Code (`HC_PING_URL` in `.env`, Ping am Ende von `quant_daily.sh`, `/fail` bei Fehlern). Patrick hat den Check angelegt und die URL gesetzt (7.10.).
+- Haertung als `deploy/harden.sh` (ufw, fail2ban, Passwort-Login aus, GitHub-Host-Key aus api.github.com/meta, Logrotate). Von Patrick ausgefuehrt (7.10.).
 - Offen: Update-Pfad (Punkt 1). Auto-Update bleibt in der Paper-Phase an und wird vor Live abgeschaltet; Umbau auf signierte Tags erst, wenn Live naht.
 - GDELT: Server liefert auch mit Pause und Retry HTTP 429, Tageszeile leer. Abruf per `macro.gdelt_enabled: false` abgeschaltet (kein Backtest-Nutzen). Nachrichten kommen in Phase 3 ueber RSS.
 
 **Stand Phase 1 (7.10.):**
 - `quant/sensitivity.py` gebaut (7 vorab festgelegte Szenarien: Spot 10/20/40 bps, 1 Tag Verzoegerung, Perp mit echtem Binance-Funding). `trend_returns` hat neu `delay` und `funding`. Basis-Trend-Kosten `trend_bps: 10` entsprechen bereits Spot (7 bps Taker + Slippage). Lauf auf dem Server am 7.10. erledigt, Zahlen in Abschnitt 4; Punkt 3 und 5 aus Abschnitt 5 sind damit erledigt. Nicht abgedeckt: tatsaechliche Orderbuch-Tiefe UBTC/UETH, Abweichung des Spot-Preises zu Binance, Bridge-Risiko.
 - Gebaut (Trockenlauf, nur Fakes getestet): `killswitch.py` (Stufen, Hysterese, klebriger Stopp, Ein-/Auszahlungen), `safety.py` (fail-closed), `hl_exec.py` (Zielwerte je Unit-Token, Rundung, Mindestwert, Teilorders unter 25%-Grenze, feste Client-Order-ID, Protokoll `orders_dryrun.csv`). Live-Modus gesperrt. Papierkonto `paper_account_A.json` (Fills zum Mid + 7 bps), laeuft taeglich im `quant_daily.sh` (Schritt "Trockenlauf Ausfuehrung"). Stopp verkauft auch bei Sicherungs-Verstoessen (Abweichung von "sofortiger Handelsstopp", weil der Kontowert aus dem Konto kommt); alle anderen Verstoesse blockieren.
-- Nicht gebaut / ungeprueft: Carry-Ausfuehrung (Spot long + Perp short), Order-Senden ueber das offizielle SDK, Kontowert-Abruf (`spotClearinghouseState`, Format aus Doku, nicht live gesehen), Mindestorderwert 10 USD gegen Doku pruefen, Gebuehren-Tier, Unit-Bridge-Ein-/Auszahlung, Soll/Ist-Abgleich nach Ausfuehrung, taeglicher Timer fuer hl_exec.
-- P1 9-11 umgesetzt (7.10.): Carry mit Margin-Ausgleich (ab 0.5/lev Bewegung seit Referenz, Kosten) und Liquidation mit Margin-Verlust; Spill und Signal nutzen dieselben Walk-Forward-Carry-Parameter (`spill.carry_wf_parts`); `load_all` behaelt Tage mit fehlendem Funding (0) und loggt Luecken. Folge: Backtest-Zahlen koennen sich leicht aendern; Vorher-Werte stehen in Abschnitt 4 (Profil 40 +25.6%, Sharpe 1.16, MaxDD -18.5%; Spill +29.0%, MaxDD -22.9%). Neue Werte nach Serverlauf hier eintragen. Offen: P1 12 (Funding-Timing). P1 13 (Korb-Rebalancing BTC/ETH kostenlos gerechnet): eigene Grobschaetzung unter 0.2 Pp pro Jahr, nicht gebaut.
+- Nicht gebaut / ungeprueft: Carry-Ausfuehrung (Spot long + Perp short), Order-Senden ueber das offizielle SDK, Kontowert-Abruf (`spotClearinghouseState`, Format aus Doku, nicht live gesehen), Mindestorderwert 10 USD gegen Doku pruefen, Gebuehren-Tier, Unit-Bridge-Ein-/Auszahlung, Soll/Ist-Abgleich nach Ausfuehrung.
+- P1 9-11 umgesetzt (7.10.): Carry mit Margin-Ausgleich (ab 0.5/lev Bewegung seit Referenz, Kosten) und Liquidation mit Margin-Verlust; Spill und Signal nutzen dieselben Walk-Forward-Carry-Parameter (`spill.carry_wf_parts`); `load_all` behaelt Tage mit fehlendem Funding (0) und loggt Luecken. Folge: Backtest-Zahlen koennen sich leicht aendern; Vorher-Werte stehen in Abschnitt 4 (Profil 40 +25.6%, Sharpe 1.16, MaxDD -18.5%; Spill +29.0%, MaxDD -22.9%). Neue Werte in Abschnitt 4. Offen: P1 12 (Funding-Timing). P1 13 (Korb-Rebalancing BTC/ETH kostenlos gerechnet): eigene Grobschaetzung unter 0.2 Pp pro Jahr, nicht gebaut.
 
 ## 9. Entscheidungen
 
