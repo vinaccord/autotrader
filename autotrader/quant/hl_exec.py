@@ -4,7 +4,8 @@ python -m autotrader.quant.hl_exec --config quant_40.yaml --plan live_plan.yaml
 
 Ablauf: Signal (Profil 40 mit Spill) -> Zielwerte je Unit-Token (UBTC/UETH) -> Kill-Switch-Faktor -> Sicherungen (safety.py)
 -> Orderplan mit Mengen-Rundung, Mindestwert, Limitpreis und fester Client-Order-ID -> Protokoll in data/quant/orders_dryrun.csv.
-Kontowert: oeffentliche Adresse aus HL_ACCOUNT_ADDRESS (nur Lesen). Ohne Adresse rechnet der Plan mit dry_run.paper_equity_usdc und leeren Bestaenden.
+Kontowert: oeffentliche Adresse aus HL_ACCOUNT_ADDRESS (nur Lesen). Ohne Adresse fuehrt der Lauf ein Papierkonto (paper_account_A.json, Start dry_run.paper_equity_usdc):
+Orders gelten als zum Mid plus Taker-Gebuehr gefuellt, so entsteht ein fortlaufendes Ausfuehrungs-Protokoll mit echtem Kill-Switch-Verlauf.
 Carry-Ausfuehrung (Spot long + Perp short) ist noch nicht gebaut: der Carry-Anteil bleibt im Plan USDC und wird als Hinweis gemeldet.
 Live-Modus ist absichtlich gesperrt, bis Patrick im Chat freigibt, das offizielle SDK geprueft und die Version festgenagelt ist.
 """
@@ -104,6 +105,44 @@ def log_orders(path, rows):
     return len(new)
 
 
+def paper_load(path, start_usdc):
+    import json
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    return {"usdc": float(start_usdc), "holdings": {}, "fills": 0}
+
+
+def paper_save(path, st):
+    import json
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(st, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def paper_fill(st, orders, prices, fee_bps):
+    """Papier-Fill: alle Orders zum Mid plus Gebuehr (optimistisch: keine Slippage, kein Teil-Fill)."""
+    st = {"usdc": st["usdc"], "holdings": dict(st["holdings"]), "fills": st.get("fills", 0)}
+    for o in orders:
+        usd = o["sz"] * prices[o["asset"]]
+        fee = usd * fee_bps / 1e4
+        if o["side"] == "buy":
+            if usd + fee > st["usdc"] + 1e-9:
+                continue  # nicht genug USDC: Order verfaellt
+            st["usdc"] -= usd + fee
+            st["holdings"][o["asset"]] = st["holdings"].get(o["asset"], 0.0) + o["sz"]
+        else:
+            have = st["holdings"].get(o["asset"], 0.0)
+            sz = min(o["sz"], have)
+            st["usdc"] += sz * prices[o["asset"]] - fee
+            st["holdings"][o["asset"]] = have - sz
+        st["fills"] += 1
+    return st
+
+
 # --- Lesen von Hyperliquid und CoinGecko (Netzwerk, nur mit Fakes getestet) ---
 
 def fetch_market(session):
@@ -155,7 +194,13 @@ def run(cfg, plan, session=None, now=None, log=print, address=None):
     coins = cfg["coins"]
     exposures = {c: v["target_exposure"] for c, v in sig["trend"].items()}
     prices, sz, perp = fetch_market(s)
-    usdc_free, holdings = fetch_account(s, address) if address else (plan.get("dry_run", {}).get("paper_equity_usdc", 10000.0), {})
+    paper_path = os.path.join(cfg["data_dir"], "paper_account_A.json")
+    pst = None
+    if address:
+        usdc_free, holdings = fetch_account(s, address)
+    else:
+        pst = paper_load(paper_path, plan.get("dry_run", {}).get("paper_equity_usdc", 10000.0))
+        usdc_free, holdings = pst["usdc"], pst["holdings"]
     equity = usdc_free + sum(q * prices.get(t, 0.0) for t, q in holdings.items())
 
     wid = "A"
@@ -181,16 +226,18 @@ def run(cfg, plan, session=None, now=None, log=print, address=None):
     orders, skipped = plan_orders(tgt, holdings, prices, sz, equity, wid, sig["as_of"], plan.get("dry_run", {}).get("min_order_usd", 10.0),
                                   plan.get("dry_run", {}).get("min_trade_frac", 0.02), sf["max_slippage_bps"], sf["max_order_frac"])
     viol += safety.orders([o["usd"] for o in orders], equity, 0.0, sf["max_order_frac"], sf["max_daily_turnover_frac"])
-    if ks["level"] == "stop":
-        viol.append("Kill-Switch: Stopp aktiv")
+    # Stopp: Verkaeufe (Ziel 0) laufen trotz Sicherungs-Verstoessen, weil der Kontowert aus dem Konto kommt, nicht aus Marktdaten.
+    blocked = bool(viol) and ks["level"] != "stop"
     notes = []
     if ew["carry_aktiv"]:
         notes.append(f"Carry aktiv fuer {', '.join(ew['carry_aktiv'])}, Ausfuehrung noch nicht gebaut: Anteil bleibt USDC im Plan")
 
     ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    rows = [dict(o, ts=ts, date=sig["as_of"], wallet=wid, status="blocked" if viol else "planned", reason="; ".join(viol)) for o in orders]
+    rows = [dict(o, ts=ts, date=sig["as_of"], wallet=wid, status="blocked" if blocked else "planned", reason="; ".join(viol)) for o in orders]
     rows += [{"ts": ts, "date": sig["as_of"], "wallet": wid, "asset": a, "side": "", "status": "skipped", "reason": r, "cloid": cloid(wid, sig["as_of"], a, "skip", r)} for a, r in skipped]
     log_orders(os.path.join(cfg["data_dir"], "orders_dryrun.csv"), rows)
+    if pst is not None and not blocked and orders:
+        paper_save(paper_path, paper_fill(pst, orders, prices, plan.get("venue", {}).get("fees_bps", {}).get("spot_taker", 7.0)))
 
     log(f"Trockenlauf Wallet {wid}, Signal {sig['as_of']}, Kontowert {equity:,.2f} USD ({'Adresse' if address else 'Papier'})")
     log(f"Kill-Switch: {ks['level']} (Verlust ab Hoechststand {ks['dd']:.1%}, Exposure x{ks['exposure_mult']})")
@@ -198,14 +245,14 @@ def run(cfg, plan, session=None, now=None, log=print, address=None):
     for c in coins:
         log(f"  Ziel {c}: Exposure {exposures[c]:.2f} -> {tgt[c]:,.0f} USD {UNIT.get(c, '?')}")
     for o in orders:
-        log(f"  {'BLOCKIERT ' if viol else ''}Order {o['side']} {o['sz']} {o['asset']} limit {o['limit_px']} (~{o['usd']:,.0f} USD) {o['cloid'][:10]}")
+        log(f"  {'BLOCKIERT ' if blocked else ''}Order {o['side']} {o['sz']} {o['asset']} limit {o['limit_px']} (~{o['usd']:,.0f} USD) {o['cloid'][:10]}")
     for a, r in skipped:
         log(f"  uebersprungen {a}: {r}")
     for n in notes:
         log(f"  Hinweis: {n}")
     for v in viol:
         log(f"  SICHERUNG: {v}")
-    return {"orders": orders, "skipped": skipped, "violations": viol, "ks": ks, "equity": equity, "targets": tgt, "notes": notes}
+    return {"orders": orders, "skipped": skipped, "violations": viol, "blocked": blocked, "ks": ks, "equity": equity, "targets": tgt, "notes": notes}
 
 
 def main(argv=None):

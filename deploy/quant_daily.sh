@@ -26,6 +26,7 @@ step() {  # step NAME KOMMANDO...
   step "Backtest Profil 40" $PY -m autotrader.quant.cli --config quant_40.yaml backtest
   step "Signal Profil 40" bash -o pipefail -c "$PY -m autotrader.quant.cli --config quant_40.yaml signal | tee -a '$SIG'"
   step "Signal Kernprofil" bash -o pipefail -c "$PY -m autotrader.quant.cli --config quant.yaml signal | tee -a '$SIG'"
+  step "Trockenlauf Ausfuehrung" $PY -m autotrader.quant.hl_exec --config quant_40.yaml --plan live_plan.yaml
   $PY -m autotrader.quant.macro --config quant_40.yaml fetch || echo "Makro-Abruf fehlgeschlagen (nicht kritisch)"
   step "Tagesbericht" $PY -m autotrader.quant.report --main quant_40.yaml --core quant.yaml --paper-start "$PAPER_START"
   if [ ${#FAILED[@]} -gt 0 ]; then

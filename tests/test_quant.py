@@ -588,6 +588,20 @@ class HlExecTests(unittest.TestCase):
             # veraltete Daten blockieren
             out2 = h.run(cfg, plan, session=S(), now=now + dt.timedelta(days=5), log=lambda *_: None)
             self.assertTrue(any("alt" in v for v in out2["violations"]))
+            # Papierkonto: zweiter Lauf am selben Tag plant nichts mehr nach
+            again = h.run(cfg, plan, session=S(), now=now, log=lambda *_: None)
+            self.assertEqual(again["orders"], [])
+            self.assertGreater(again["equity"], 9900)  # Gebuehr kostet etwas, Rest bleibt
+            # Stopp verkauft auch bei Sicherungs-Verstoss (alte Daten)
+            import json
+            ksp = os.path.join(cfg["data_dir"], "killswitch_A_dryrun.json")
+            st = json.load(open(ksp))
+            st["level"] = "stop"
+            json.dump(st, open(ksp, "w"))
+            stop = h.run(cfg, plan, session=S(), now=now + dt.timedelta(days=5), log=lambda *_: None)
+            self.assertTrue(stop["violations"])
+            self.assertFalse(stop["blocked"])
+            self.assertTrue(stop["orders"] and all(o["side"] == "sell" for o in stop["orders"]))
             with self.assertRaises(SystemExit):
                 h.run(cfg, dict(plan, mode="live"), session=S(), now=now, log=lambda *_: None)
         finally:
