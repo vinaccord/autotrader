@@ -34,11 +34,31 @@ def daily_sum(rows):
 
 # --- CSV-Cache ----------------------------------------------------------
 def save_rows(path, header, rows):
+    """Atomar: erst in eine Temp-Datei, dann umbenennen. Ein Abbruch hinterlaesst nie eine halbe Datei."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", newline="", encoding="utf-8") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(header)
         w.writerows(rows)
+    os.replace(tmp, path)
+
+
+def count_rows(path):
+    if not os.path.exists(path):
+        return 0
+    with open(path, encoding="utf-8") as f:
+        return max(sum(1 for _ in f) - 1, 0)
+
+
+def save_if_not_shrunk(path, header, rows, log, label, tolerance=0.98):
+    """Schreibt nur, wenn die neue Reihe nicht deutlich kuerzer ist als der Cache. Schuetzt vor Teil-Abrufen."""
+    old = count_rows(path)
+    if old and len(rows) < old * tolerance:
+        log(f"{label}: neuer Abruf hat {len(rows)} statt {old} Zeilen, Cache bleibt unveraendert")
+        return False
+    save_rows(path, header, rows)
+    return True
 
 
 def load_rows(path):
@@ -63,17 +83,35 @@ def load_funding(path):
     return daily_sum([(int(ts), float(rate)) for ts, rate in load_rows(path)])
 
 
+# --- HTTP mit Wiederholung ----------------------------------------------
+RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+def _request(s, method, url, tries=4, backoff=2.0, **kw):
+    """GET/POST mit bis zu `tries` Versuchen bei Zeitueberschreitung, Verbindungsfehler, 429 oder 5xx."""
+    last = None
+    for k in range(tries):
+        try:
+            r = s.request(method, url, timeout=kw.pop("timeout", 30), **kw)
+            if r.status_code in RETRY_STATUS and k < tries - 1:
+                time.sleep(backoff * (2 ** k))
+                continue
+            r.raise_for_status()
+            return r
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last = e
+            if k < tries - 1:
+                time.sleep(backoff * (2 ** k))
+    raise last
+
+
 # --- Binance ------------------------------------------------------------
 def fetch_binance_klines(symbol, start_ms, session=None):
     s = session or requests.Session()
     rows, cur = [], start_ms
     while True:
-        r = s.get(
-            "https://api.binance.com/api/v3/klines",
-            params={"symbol": symbol, "interval": "1d", "startTime": cur, "limit": 1000},
-            timeout=30,
-        )
-        r.raise_for_status()
+        r = _request(s, "GET", "https://api.binance.com/api/v3/klines",
+                     params={"symbol": symbol, "interval": "1d", "startTime": cur, "limit": 1000})
         data = r.json()
         if not data:
             break
@@ -89,12 +127,8 @@ def fetch_binance_funding(symbol, start_ms, session=None):
     s = session or requests.Session()
     rows, cur = [], start_ms
     while True:
-        r = s.get(
-            "https://fapi.binance.com/fapi/v1/fundingRate",
-            params={"symbol": symbol, "startTime": cur, "limit": 1000},
-            timeout=30,
-        )
-        r.raise_for_status()
+        r = _request(s, "GET", "https://fapi.binance.com/fapi/v1/fundingRate",
+                     params={"symbol": symbol, "startTime": cur, "limit": 1000})
         data = r.json()
         if not data:
             break
@@ -113,8 +147,7 @@ HL = "https://api.hyperliquid.xyz/info"
 def fetch_hl_candles(coin, start_ms, session=None):
     s = session or requests.Session()
     end = int(time.time() * 1000)
-    r = s.post(HL, json={"type": "candleSnapshot", "req": {"coin": coin, "interval": "1d", "startTime": start_ms, "endTime": end}}, timeout=30)
-    r.raise_for_status()
+    r = _request(s, "POST", HL, json={"type": "candleSnapshot", "req": {"coin": coin, "interval": "1d", "startTime": start_ms, "endTime": end}})
     return [(int(k["t"]), k["o"], k["h"], k["l"], k["c"], k["v"]) for k in r.json()]
 
 
@@ -122,8 +155,7 @@ def fetch_hl_funding(coin, start_ms, session=None):
     s = session or requests.Session()
     rows, cur, seen = [], start_ms, set()
     while True:
-        r = s.post(HL, json={"type": "fundingHistory", "coin": coin, "startTime": cur}, timeout=30)
-        r.raise_for_status()
+        r = _request(s, "POST", HL, json={"type": "fundingHistory", "coin": coin, "startTime": cur})
         data = r.json()
         new = [(int(x["time"]), x["fundingRate"]) for x in data if int(x["time"]) not in seen]
         if not new:
@@ -141,31 +173,35 @@ def cache_path(cfg, kind, coin):
     return os.path.join(cfg["data_dir"], f"{cfg['source']}_{kind}_{coin}.csv")
 
 
-def fetch_all(cfg, log=print):
-    """Laedt Preise und Funding je Coin. Scheitert ein Coin (Symbol existiert nicht, gesperrt), wird er uebersprungen."""
+def fetch_all(cfg, log=print, session=None):
+    """Laedt Preise und Funding je Coin. Scheitert ein Coin, wird er uebersprungen und sein Cache bleibt unberuehrt.
+    Scheitert nur das Funding, bleibt der bisherige Funding-Cache stehen (nie mit Leerem ueberschreiben)."""
     start = ms(cfg["start"])
+    s = session or requests.Session()
     failed = []
     for coin in cfg["coins"]:
+        fu, fu_ok = [], True
         try:
             if cfg["source"] == "binance":
                 sym = f"{coin}USDT"
-                px = fetch_binance_klines(sym, start)
+                px = fetch_binance_klines(sym, start, s)
                 try:
-                    fu = fetch_binance_funding(sym, start)
-                except Exception as e:  # Funding ist fuer reine Trend-Profile nicht noetig
-                    fu = []
-                    log(f"{coin}: Funding nicht verfuegbar ({type(e).__name__})")
+                    fu = fetch_binance_funding(sym, start, s)
+                except Exception as e:
+                    fu_ok = False
+                    log(f"{coin}: Funding-Abruf fehlgeschlagen ({type(e).__name__}), alter Funding-Cache bleibt")
             else:
-                px = fetch_hl_candles(coin, start)
-                fu = fetch_hl_funding(coin, start)
+                px = fetch_hl_candles(coin, start, s)
+                fu = fetch_hl_funding(coin, start, s)
             if not px:
                 raise ValueError("keine Kerzen")
         except Exception as e:
             failed.append(coin)
-            log(f"{coin}: uebersprungen ({type(e).__name__}: {e})")
+            log(f"{coin}: uebersprungen ({type(e).__name__}: {e}), alter Cache bleibt")
             continue
-        save_rows(cache_path(cfg, "prices", coin), ["ts", "open", "high", "low", "close", "volume"], px)
-        save_rows(cache_path(cfg, "funding", coin), ["ts", "rate"], fu)
+        save_if_not_shrunk(cache_path(cfg, "prices", coin), ["ts", "open", "high", "low", "close", "volume"], px, log, f"{coin} Preise")
+        if fu_ok and fu:
+            save_if_not_shrunk(cache_path(cfg, "funding", coin), ["ts", "rate"], fu, log, f"{coin} Funding")
         first = day_str(int(px[0][0]))
         log(f"{coin}: {len(px)} Tageskerzen ab {first}, {len(fu)} Funding-Eintraege")
     if failed:

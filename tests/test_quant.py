@@ -438,3 +438,66 @@ class SpillTests(unittest.TestCase):
             out = spill.run(cfg, log=lines.append)
             self.assertEqual(set(out), {"idle", "spill_half", "spill", "trend_only"})
             self.assertTrue(any("Carry war an" in x for x in lines))
+
+
+class FetchSafetyTests(unittest.TestCase):
+    class R:
+        def __init__(self, j, code=200):
+            self.j, self.status_code = j, code
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                import requests
+                raise requests.HTTPError(response=self)
+
+        def json(self):
+            return self.j
+
+    def _cfg(self, td):
+        return {"data_dir": td, "source": "binance", "coins": ["BTC"], "start": "2020-01-01"}
+
+    def test_failed_funding_keeps_old_cache_and_short_fetch_does_not_overwrite(self):
+        import tempfile
+        from autotrader.quant import data as d
+        R = self.R
+        kl = [[1577836800000 + i * 86400000, "1", "1", "1", "1", "1"] for i in range(5)]
+
+        class S:
+            def request(s, method, url, **kw):
+                if "klines" in url:
+                    return R(kl[:2])  # Teil-Abruf: nur 2 statt 5 Kerzen
+                return R({}, 500)  # Funding faellt aus
+
+        with tempfile.TemporaryDirectory() as td:
+            cfg = self._cfg(td)
+            d.save_rows(d.cache_path(cfg, "prices", "BTC"), ["ts", "open", "high", "low", "close", "volume"], kl)
+            d.save_rows(d.cache_path(cfg, "funding", "BTC"), ["ts", "rate"], [[1577836800000, "0.0001"]])
+            orig = d.time.sleep
+            d.time.sleep = lambda x: None
+            try:
+                lines = []
+                d.fetch_all(cfg, log=lines.append, session=S())
+            finally:
+                d.time.sleep = orig
+            self.assertEqual(d.count_rows(d.cache_path(cfg, "prices", "BTC")), 5)
+            self.assertEqual(d.count_rows(d.cache_path(cfg, "funding", "BTC")), 1)
+            self.assertTrue(any("Cache bleibt" in x or "alter Funding-Cache" in x for x in lines))
+
+    def test_request_retries_on_429(self):
+        from autotrader.quant import data as d
+        R = self.R
+        calls = []
+
+        class S:
+            def request(s, method, url, **kw):
+                calls.append(1)
+                return R([], 429) if len(calls) < 3 else R([1])
+
+        orig = d.time.sleep
+        d.time.sleep = lambda x: None
+        try:
+            r = d._request(S(), "GET", "http://x")
+        finally:
+            d.time.sleep = orig
+        self.assertEqual(r.json(), [1])
+        self.assertEqual(len(calls), 3)

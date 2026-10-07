@@ -13,7 +13,7 @@ git archive HEAD | tar -x -C "$APP"
 chmod +x "$APP/deploy/quant_daily.sh"
 chown -R autotrader:autotrader "$APP"
 # Units aktuell halten
-cp "$APP/deploy/quant-daily.service" "$APP/deploy/quant-daily.timer" /etc/systemd/system/
-cp "$APP/deploy/quant-update.service" "$APP/deploy/quant-update.timer" /etc/systemd/system/
+cp "$SRC/deploy/quant-daily.service" "$SRC/deploy/quant-daily.timer" /etc/systemd/system/
+cp "$SRC/deploy/quant-update.service" "$SRC/deploy/quant-update.timer" /etc/systemd/system/
 systemctl daemon-reload
 echo "update ok: $(git rev-parse --short HEAD) $(date -u +%FT%TZ)"
