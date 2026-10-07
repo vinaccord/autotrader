@@ -166,6 +166,13 @@ def fetch_account(session, address):
     return bal.get("USDC", 0.0), {k: v for k, v in bal.items() if k != "USDC"}
 
 
+def fetch_perp_value(session, address):
+    """Kontowert im Perp-Konto (clearinghouseState, marginSummary.accountValue). Hyperliquid fuehrt USDC getrennt fuer Spot und Perp:
+    eine Einzahlung ueber Arbitrum landet je nach Kontomodus im Perp-Konto, der Bot liest aber nur das Spot-Konto."""
+    st = hl_liquidity._post(session, {"type": "clearinghouseState", "user": address})
+    return float(((st or {}).get("marginSummary") or {}).get("accountValue", 0.0))
+
+
 def fetch_hl_closes(session, coins, date):
     out = {}
     start = data.ms(date)
@@ -245,6 +252,14 @@ def run(cfg, plan, session=None, now=None, log=print, address=None, sender=None)
     rows = [dict(o, ts=ts, date=sig["as_of"], wallet=wid, status="blocked" if blocked else "planned", reason="; ".join(viol)) for o in orders]
     rows += [{"ts": ts, "date": sig["as_of"], "wallet": wid, "asset": a, "side": "", "status": "skipped", "reason": r, "cloid": cloid(wid, sig["as_of"], a, "skip", r)} for a, r in skipped]
     if live:
+        try:
+            perp = fetch_perp_value(s, address)
+            if perp > 5.0 and equity < 0.5 * perp:
+                viol.append(f"{perp:,.2f} USD liegen im Perp-Konto, der Bot sieht im Spot-Konto nur {equity:,.2f} USD. Von Hand nach Spot umbuchen (Hyperliquid: Transfer Perps zu Spot).")
+                blocked = blocked or ks["level"] != "stop"
+        except Exception as e:
+            viol.append(f"Perp-Konto nicht lesbar ({type(e).__name__})")
+            blocked = blocked or ks["level"] != "stop"
         cap = plan.get("live", {}).get("max_equity_usdc")
         if cap is not None and equity > cap:
             viol.append(f"Kontowert {equity:,.0f} USD ueber Obergrenze {cap:,.0f} (nicht freigegebene Aufstockung?)")

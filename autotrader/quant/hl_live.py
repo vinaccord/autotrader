@@ -43,6 +43,30 @@ def check_gates(plan, args_confirm, env, today=None):
     return out
 
 
+def alert_text(res):
+    """Kurztext ohne Betraege und Positionen (ntfy.sh ist oeffentlich). None = nichts zu melden."""
+    live = res.get("live") or {}
+    if live.get("aborted"):
+        return "Order fehlgeschlagen, restliche Orders nicht gesendet. Details: orders_live.csv"
+    if live.get("mismatch"):
+        return "Soll/Ist-Abweichung nach der Ausfuehrung. Details: Konsole und orders_live.csv"
+    if res.get("blocked") and res.get("orders"):
+        return "Orders blockiert durch Sicherung: " + "; ".join(v.split(".")[0][:60] for v in res.get("violations", [])[:3])
+    return None
+
+
+def notify(env, title, body, post=None):
+    topic = env.get("NTFY_TOPIC")
+    if not topic:
+        return False
+    post = post or requests.post
+    try:
+        post(f"https://ntfy.sh/{topic}", data=body.encode("utf-8"), headers={"Title": title, "Priority": "urgent"}, timeout=15)
+        return True
+    except requests.RequestException:
+        return False
+
+
 def main(argv=None, env=None):
     ap = argparse.ArgumentParser(prog="hl_live")
     ap.add_argument("--config", default="quant_40.yaml")
@@ -69,8 +93,9 @@ def main(argv=None, env=None):
             pairs[tok] = found[1]
     sender = hl_sender.SdkSender(pairs)
     res = hl_exec.run(cfg, plan, session=s, address=env["HL_ACCOUNT_ADDRESS"], sender=sender)
-    live = res.get("live") or {}
-    if live.get("aborted") or live.get("mismatch") or (res["blocked"] and res["orders"]):
+    msg = alert_text(res)
+    if msg:
+        notify(env, "Autotrader LIVE: PROBLEM", msg)
         raise SystemExit(1)
 
 

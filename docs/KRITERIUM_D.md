@@ -36,5 +36,6 @@ Sicherungen (je ein Fall der ausloest, einer der nicht ausloest, und fail-closed
 
 ## Grenzen (ehrlich)
 - Das sind Logik-Tests mit Testdaten. Nicht geprueft: Verhalten gegen die echte API (Antwortformate, Fehlerfaelle, Zeitverhalten). Das gehoert zu Kriterium E (Kleinstbetrag-Test).
-- Ausloesung von ntfy-Alarmen bei Verstoessen ist im Lauf nur ueber den Tagesbericht und die Fehlermeldung von `quant_daily.sh` abgedeckt, nicht einzeln fuer jede Sicherung. Der Live-Lauf selbst (`hl_live.py`) meldet bisher nur auf der Konsole und per Exit-Code; Alarm bei Verstoessen im Live-Lauf ist noch zu bauen, bevor er automatisch laeuft.
+- ntfy-Alarm im Live-Lauf: `hl_live.py` sendet bei abgelehnter Order, Soll/Ist-Abweichung oder blockierten Orders eine Kurzmeldung (ohne Betraege und Positionen) und endet mit Exit-Code 1. Getestet mit Fake-Post, nicht gegen ntfy.sh. Der Tagesbericht und `quant_daily.sh` melden getrennt davon.
+- Liegt das USDC im Perp- statt im Spot-Konto, blockiert der Live-Lauf mit klarer Meldung (Test mit Fake-API; echtes Kontoverhalten bei der Einrichtung pruefen).
 - Schwellen sind Annahmen (Patricks Verlusttoleranz 40%), keine Optimierung.

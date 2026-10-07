@@ -211,6 +211,8 @@ class LiveRunTests(unittest.TestCase):
                     return R([{"t": h.data.ms(dates[-1]), "o": last, "h": last, "l": last, "c": str(last), "v": 1}])
                 if t == "spotClearinghouseState":
                     return R({"balances": [{"coin": "USDC", "total": str(state["usdc"])}, {"coin": "UBTC", "total": str(state["ubtc"])}]})
+                if t == "clearinghouseState":
+                    return R({"marginSummary": {"accountValue": str(state.get("perp", 0.0))}})
                 if t == "orderStatus":
                     return R({"status": "order", "order": {}} if json["oid"] in state["seen"] else {"status": "unknownOid"})
                 raise AssertionError(t)
@@ -270,6 +272,29 @@ class LiveRunTests(unittest.TestCase):
         out = self.h.run(self.cfg, self.plan, session=self.session(5000, state, None), now=self.now, log=lambda *_: None, address="0xabc", sender=Sender())
         self.assertTrue(out["blocked"])
         self.assertTrue(any("Obergrenze" in v for v in out["violations"]))
+
+    def test_usdc_in_perp_account_blocks_with_clear_message(self):
+        state = {"usdc": 0.0, "ubtc": 0.0, "perp": 1000.0, "seen": set()}
+
+        class Sender:
+            def send(s, o):
+                raise AssertionError("darf nicht senden")
+
+        out = self.h.run(self.cfg, self.plan, session=self.session(0, state, None), now=self.now, log=lambda *_: None, address="0xabc", sender=Sender())
+        self.assertTrue(any("Perp-Konto" in v for v in out["violations"]))
+        self.assertTrue(out["blocked"])
+
+    def test_unified_account_same_value_in_both_is_not_flagged(self):
+        state = {"usdc": 1000.0, "ubtc": 0.0, "perp": 1000.0, "seen": set()}
+
+        class Sender:
+            def send(s, o):
+                state["usdc"] -= o["usd"]
+                state["ubtc"] += o["sz"]
+                return {"status": "filled", "oid": 1, "filled_sz": o["sz"], "avg_px": o["limit_px"], "error": ""}
+
+        out = self.h.run(self.cfg, self.plan, session=self.session(1000, state, None), now=self.now, log=lambda *_: None, address="0xabc", sender=Sender())
+        self.assertFalse(any("Perp-Konto" in v for v in out["violations"]))
 
     def test_old_data_blocks_live_orders(self):
         state = {"usdc": 1000.0, "ubtc": 0.0, "seen": set()}
@@ -388,3 +413,24 @@ class ProtectionCheckTests(unittest.TestCase):
             rc = pc.main(["--plan", p], out=lines.append)
         self.assertEqual(rc, 1)
         self.assertTrue(any(l.strip().startswith("FAIL") for l in lines))
+
+
+class AlertTests(unittest.TestCase):
+    def test_alert_text_cases_and_no_amounts(self):
+        self.assertIsNone(hl_live.alert_text({"live": {"aborted": False, "mismatch": []}, "blocked": False, "orders": []}))
+        self.assertIn("fehlgeschlagen", hl_live.alert_text({"live": {"aborted": True}}))
+        self.assertIn("Abweichung", hl_live.alert_text({"live": {"mismatch": ["UBTC: 20.0% (1234 USD)"]}}))
+        t = hl_live.alert_text({"live": {}, "blocked": True, "orders": [1], "violations": ["Daten 73 h alt (max. 36 h)"]})
+        self.assertIn("blockiert", t)
+        self.assertNotIn("1234", hl_live.alert_text({"live": {"mismatch": ["UBTC: 20.0% (1234 USD)"]}}))
+
+    def test_notify_posts_to_topic_and_survives_errors(self):
+        calls = []
+        self.assertTrue(hl_live.notify({"NTFY_TOPIC": "abc"}, "T", "B", post=lambda url, **kw: calls.append((url, kw))))
+        self.assertEqual(calls[0][0], "https://ntfy.sh/abc")
+        self.assertFalse(hl_live.notify({}, "T", "B", post=lambda *a, **k: calls.append(1)))
+
+        def boom(*a, **k):
+            raise hl_live.requests.ConnectionError("x")
+
+        self.assertFalse(hl_live.notify({"NTFY_TOPIC": "abc"}, "T", "B", post=boom))
