@@ -352,6 +352,60 @@ class SensitivityTests(unittest.TestCase):
         self.assertLess(dev, 1e-9)
 
 
+class HlLiquidityTests(unittest.TestCase):
+    BOOK = {"levels": [[{"px": "99", "sz": "1", "n": 1}, {"px": "98", "sz": "10", "n": 1}], [{"px": "101", "sz": "1", "n": 1}, {"px": "102", "sz": "10", "n": 1}]]}
+
+    def test_walk_book_and_impact(self):
+        from autotrader.quant import hl_liquidity as h
+        avg, filled = h.walk_book([("101", "1"), ("102", "10")], 101)
+        self.assertAlmostEqual(avg, 101)
+        self.assertAlmostEqual(filled, 101)
+        r = h.impact_bps(self.BOOK, 202)  # 101 auf Ebene 1, 101 auf Ebene 2
+        self.assertAlmostEqual(r["mid"], 100)
+        self.assertAlmostEqual(r["spread_bps"], 200)
+        self.assertGreater(r["buy_bps"], 100)  # teurer als bester Ask
+        self.assertAlmostEqual(r["buy_fill"], 202)
+        thin = h.impact_bps(self.BOOK, 100000)
+        self.assertLess(thin["buy_fill"], 100000)
+
+    def test_find_spot(self):
+        from autotrader.quant import hl_liquidity as h
+        meta = {"tokens": [{"name": "USDC", "index": 0}, {"name": "UBTC", "index": 142}], "universe": [{"name": "@1", "tokens": [5, 0], "index": 1}, {"name": "@142", "tokens": [142, 0], "index": 7}]}
+        self.assertEqual(h.find_spot(meta, "UBTC"), (7, "@142"))
+        self.assertIsNone(h.find_spot(meta, "UETH"))
+
+    def test_check_with_fake_api(self):
+        from autotrader.quant import hl_liquidity as h
+
+        class R:
+            def __init__(self, j):
+                self.j = j
+                self.status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.j
+
+        class S:
+            def request(self, method, url, timeout=0, json=None, **kw):
+                t = json["type"]
+                if t == "spotMetaAndAssetCtxs":
+                    meta = {"tokens": [{"name": "USDC", "index": 0}, {"name": "UBTC", "index": 1}, {"name": "UETH", "index": 2}],
+                            "universe": [{"name": "@10", "tokens": [1, 0], "index": 0}, {"name": "@11", "tokens": [2, 0], "index": 1}]}
+                    return R([meta, [{"dayNtlVlm": "5000000"}, {"dayNtlVlm": "3000000"}]])
+                if t == "metaAndAssetCtxs":
+                    return R([{"universe": [{"name": "BTC"}, {"name": "ETH"}]}, [{"dayNtlVlm": "9e8"}, {"dayNtlVlm": "5e8"}]])
+                return R(TestBook)
+
+        TestBook = self.BOOK
+        logs = []
+        out = h.check([1000, 10000], session=S(), log=logs.append)
+        self.assertIn("UBTC", out)
+        self.assertTrue(any("Basis Spot-Mid" in l for l in logs))
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile
