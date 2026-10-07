@@ -73,6 +73,7 @@ Der alte DEX-Agent (`autotrader/agent.py`, `adapt.py`, `security.py`, `risk.py`,
 | 5 Coins gleichgewichtet | Sharpe +0.15, MaxDD 8 Pp schlechter | nicht übernommen |
 | 12 / 16 Coins gleichgewichtet | CAGR 15–16% statt 21% (ab 2021-06) | verworfen |
 | Trend-Sensitivitaet (7.10., Server, 2020-11 bis 2026-10, `quant.sensitivity`) | Trend / Profil 40 CAGR: Spot 10 bps +32.4% / +25.5%; Spot 20 bps +31.6% / +24.9%; Spot 40 bps +29.9% / +23.8%; Spot 10 bps + 1 Tag spaeter +28.6% / +23.0%; Spot 20 bps + 1 Tag +27.8% / +22.5%; Perp + Funding +24.3% / +20.1%; Perp + Funding + 1 Tag +20.8% / +17.7%. MaxDD Trend -28% bis -32%, Profil 40 -18.5% bis -22% | Spot bestaetigt: Kosten x4 kosten 2.5 Pp, 1 Tag Verzoegerung 3.8 Pp, Perp-Funding 8 Pp |
+| Liquiditaet Hyperliquid Spot (7.10., Server, `quant.hl_liquidity`) | UBTC/USDC: 24h-Volumen 29.1 Mio USD, Spread 0.2 bps; Marktorder 50'000 USD kaufen 0.9 bps / verkaufen 0.1 bps. UETH/USDC: 13.7 Mio USD, Spread 0.4 bps; 50'000 USD kaufen 0.6 / verkaufen 1.2 bps. Basis Spot-Mid gegen Perp-Mid +1.5 bps (beide). Perp-Buecher aehnlich duenn im Spread | Liquiditaet reicht weit ueber die geplante Groesse; Gebuehr (7 bps Taker) ist der Hauptkostenpunkt |
 | GDELT-Abruf | HTTP 429 auch mit Pause und Retry (7.10.) | abgeschaltet |
 
 **Lehre:** Mehr Regeln und mehr Coins im Gleichgewicht haben nichts gebracht. Der Ertrag kommt aus dem Trend-Filter auf BTC/ETH. Die Jahre sind sehr ungleich (2023 +42%, 2024 +52%, 2022 -4%, 2025 -1%).

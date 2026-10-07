@@ -406,6 +406,88 @@ class HlLiquidityTests(unittest.TestCase):
         self.assertTrue(any("Basis Spot-Mid" in l for l in logs))
 
 
+class KillSwitchTests(unittest.TestCase):
+    KS = {"warn_dd": 0.20, "brake_dd": 0.30, "brake_release_dd": 0.20, "stop_dd": 0.40, "stop_below_deposits": 0.60, "global_stop_dd": 0.40}
+
+    def test_levels_and_hysteresis(self):
+        from autotrader.quant import killswitch as k
+        s = k.new_state(1000)
+        s, i = k.evaluate(s, 1100, self.KS)
+        self.assertEqual((i["level"], s["hwm"]), ("normal", 1100))
+        s, i = k.evaluate(s, 1100 * 0.79, self.KS)
+        self.assertEqual(i["level"], "warn")
+        s, i = k.evaluate(s, 1100 * 0.69, self.KS)
+        self.assertEqual((i["level"], i["exposure_mult"]), ("brake", 0.5))
+        s, i = k.evaluate(s, 1100 * 0.75, self.KS)  # -25%: Bremse bleibt (erst unter -20% frei)
+        self.assertEqual(i["level"], "brake")
+        s, i = k.evaluate(s, 1100 * 0.81, self.KS)  # -19%
+        self.assertEqual(i["level"], "normal")
+
+    def test_stop_is_sticky_and_reset_needs_call(self):
+        from autotrader.quant import killswitch as k
+        s = k.new_state(1000)
+        s, i = k.evaluate(s, 590, self.KS)
+        self.assertEqual((i["level"], i["exposure_mult"]), ("stop", 0.0))
+        s, i = k.evaluate(s, 1000, self.KS)  # Erholung hebt den Stopp nicht auf
+        self.assertEqual(i["level"], "stop")
+        s = k.reset(s, 1000)
+        s, i = k.evaluate(s, 1000, self.KS)
+        self.assertEqual(i["level"], "normal")
+
+    def test_stop_below_deposits_even_with_small_drawdown(self):
+        from autotrader.quant import killswitch as k
+        s = k.new_state(1000, deposits=2000)  # frueher eingezahlt, Kontowert schon tief, Hoechststand 1000
+        s, i = k.evaluate(s, 900, self.KS)  # 900 < 60% von 2000
+        self.assertEqual(i["level"], "stop")
+
+    def test_flows_move_hwm(self):
+        from autotrader.quant import killswitch as k
+        s = k.new_state(1000)
+        s = k.record_flow(s, 1000, 500)
+        self.assertEqual((s["hwm"], s["deposits"]), (1500, 1500))
+        s = k.record_flow(s, 1500, -750)  # halbe Auszahlung
+        self.assertAlmostEqual(s["hwm"], 750)
+        s, i = k.evaluate(s, 750, self.KS)
+        self.assertEqual(i["level"], "normal")  # Auszahlung ist kein Verlust
+        with self.assertRaises(ValueError):
+            k.record_flow(s, 750, -800)
+
+    def test_global_and_persistence(self):
+        import tempfile
+        from autotrader.quant import killswitch as k
+        hwm, stop, dd = k.global_check(590, 1000, self.KS)
+        self.assertTrue(stop)
+        hwm, stop, dd = k.global_check(900, 1000, self.KS)
+        self.assertFalse(stop)
+        p = os.path.join(tempfile.mkdtemp(), "ks.json")
+        self.assertIsNone(k.load(p))
+        k.save(p, k.new_state(500))
+        self.assertEqual(k.load(p)["hwm"], 500)
+
+
+class SafetyTests(unittest.TestCase):
+    def test_all_checks(self):
+        from autotrader.quant import safety as sf
+        now = dt.datetime(2026, 10, 8, 1, 5, tzinfo=dt.timezone.utc)
+        self.assertEqual(sf.data_age("2026-10-07", now, 36), [])
+        self.assertTrue(sf.data_age("2026-10-05", now, 36))
+        self.assertTrue(sf.data_age(None, now, 36))
+        self.assertEqual(sf.source_divergence({"BTC": 100}, {"BTC": 102}, 0.03), [])
+        self.assertTrue(sf.source_divergence({"BTC": 100}, {"BTC": 105}, 0.03))
+        self.assertTrue(sf.source_divergence({"BTC": 100}, {}, 0.03))  # fail-closed
+        self.assertTrue(sf.usdc_peg(0.97, 0.98))
+        self.assertTrue(sf.usdc_peg(None, 0.98))
+        self.assertEqual(sf.usdc_peg(0.999, 0.98), [])
+        self.assertTrue(sf.unit_deviation({"UBTC": 103}, {"UBTC": 100}, 0.02))
+        self.assertEqual(sf.unit_deviation({"UBTC": 100.5}, {"UBTC": 100}, 0.02), [])
+        self.assertTrue(sf.orders([3000], 10000, 0, 0.25, 1.0))
+        self.assertTrue(sf.orders([2000, 2000], 10000, 7000, 0.25, 1.0))
+        self.assertEqual(sf.orders([2000], 10000, 0, 0.25, 1.0), [])
+        self.assertTrue(sf.orders([1], 0, 0, 0.25, 1.0))
+        self.assertTrue(sf.position_mismatch({"UBTC": 5000}, {"UBTC": 4000}, 10000, 0.05))
+        self.assertEqual(sf.position_mismatch({"UBTC": 5000}, {"UBTC": 4800}, 10000, 0.05), [])
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile
