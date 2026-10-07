@@ -274,7 +274,9 @@ Begründung:
 
 **Stand Phase 1 (7.10.):**
 - `quant/sensitivity.py` gebaut (7 vorab festgelegte Szenarien: Spot 10/20/40 bps, 1 Tag Verzoegerung, Perp mit echtem Binance-Funding). `trend_returns` hat neu `delay` und `funding`. Basis-Trend-Kosten `trend_bps: 10` entsprechen bereits Spot (7 bps Taker + Slippage). Lauf auf dem Server am 7.10. erledigt, Zahlen in Abschnitt 4; Punkt 3 und 5 aus Abschnitt 5 sind damit erledigt. Nicht abgedeckt: tatsaechliche Orderbuch-Tiefe UBTC/UETH, Abweichung des Spot-Preises zu Binance, Bridge-Risiko.
-- Offen: Ergebnis vom Server eintragen; Spot-Liquiditaet UBTC/UETH (Orderbuch-Tiefe) pruefen; `hl_exec.py`; P1-Punkte 9-11.
+- Gebaut (Trockenlauf, nur Fakes getestet): `killswitch.py` (Stufen, Hysterese, klebriger Stopp, Ein-/Auszahlungen), `safety.py` (fail-closed), `hl_exec.py` (Zielwerte je Unit-Token, Rundung, Mindestwert, Teilorders unter 25%-Grenze, feste Client-Order-ID, Protokoll `orders_dryrun.csv`). Live-Modus gesperrt.
+- Nicht gebaut / ungeprueft: Carry-Ausfuehrung (Spot long + Perp short), Order-Senden ueber das offizielle SDK, Kontowert-Abruf (`spotClearinghouseState`, Format aus Doku, nicht live gesehen), Mindestorderwert 10 USD gegen Doku pruefen, Gebuehren-Tier, Unit-Bridge-Ein-/Auszahlung, Soll/Ist-Abgleich nach Ausfuehrung, taeglicher Timer fuer hl_exec.
+- Offen: P1-Punkte 9-11 (Carry-Liquidation, Spill-Konsistenz, Kalenderluecken).
 
 ## 9. Entscheidungen
 
