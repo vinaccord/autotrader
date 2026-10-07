@@ -866,6 +866,24 @@ class XsMomTests(unittest.TestCase):
         self.assertLess(min(r[251:252]), 0)  # Abschlag am Tag nach dem letzten Kurs
 
 
+class XsMomDiagTests(unittest.TestCase):
+    def test_extreme_moves_equity_path_and_diagnose_run(self):
+        from autotrader.quant import xsmom as x
+        p, dates = XsMomTests.panel(seed=2)
+        c = p["close"]["C2USDT"]
+        c[200] = c[199] * 10  # kuenstlicher Sprung
+        ex, total = x.extreme_moves(p)
+        self.assertTrue(any(s == "C2USDT" and d == dates[200] for _, s, d, _ in ex))
+        pk, pkd, tv, tvd, end = x.equity_path([0.0, 1.0, -0.5, 0.1], ["a", "b", "c", "d"], 0)
+        self.assertAlmostEqual(pk, 2.0)
+        self.assertAlmostEqual(tv, 1.0)
+        self.assertAlmostEqual(end, 1.1)
+        logs = []
+        x.diagnose(p, dates[120], log=logs.append)
+        self.assertTrue(any("DATENPRUEFUNG" in l for l in logs))
+        self.assertTrue(any("schlechtester Tag" in l for l in logs))
+
+
 class GdeltOffTests(unittest.TestCase):
     def test_gdelt_disabled_makes_no_tone_requests(self):
         import tempfile

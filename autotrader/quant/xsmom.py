@@ -119,7 +119,7 @@ def _pick(p, i, lookback, sma_filter, k, mode):
     return {s: 1.0 / k for s in top}
 
 
-def backtest(p, start, lookback, sma_filter, cost_bps, mode="mom", delist_penalty=DELIST_PENALTY, rebalance=REBALANCE):
+def backtest(p, start, lookback, sma_filter, cost_bps, mode="mom", delist_penalty=DELIST_PENALTY, rebalance=REBALANCE, trace=None):
     """-> (rets ueber p['dates'], info). rets[i+1] = Rendite von Tag i nach i+1 mit den am Schluss von i gewaehlten Gewichten."""
     n = len(p["dates"])
     rets = [0.0] * n
@@ -144,6 +144,8 @@ def backtest(p, start, lookback, sma_filter, cost_bps, mode="mom", delist_penalt
             r = 0.0 if (c[i + 1] is None or c[i] is None) else c[i + 1] / c[i] - 1
             R += ws * r
             neww[s] = ws * (1 + r)
+            if trace is not None:
+                trace.append((i + 1, s, ws * r))
         rets[i + 1] = R - cost
         eq = 1 + R
         w = {s: x / eq for s, x in neww.items()}
@@ -173,6 +175,58 @@ def buyhold(p, sym="BTCUSDT"):
     return out
 
 
+def extreme_moves(p, up=3.0, down=-0.9, limit=15):
+    """Groesste Tagesspruenge der Rohdaten: Kandidaten fuer Datenfehler, Umbenennungen, Redenominierungen."""
+    out = []
+    for s, c in p["close"].items():
+        for i in range(1, len(c)):
+            if c[i] is not None and c[i - 1] is not None and c[i - 1] > 0:
+                r = c[i] / c[i - 1] - 1
+                if r >= up or r <= down:
+                    out.append((abs(r) if r > 0 else 1 / max(1e-9, 1 + r), s, p["dates"][i], r))
+    out.sort(reverse=True)
+    return out[:limit], len(out)
+
+
+def equity_path(rets, dates, start):
+    """-> (Spitze, Datum Spitze, Tief nach Spitze, Datum Tief, Endwert), Start = 1."""
+    eq, peak, pd_, trough, td = 1.0, 1.0, dates[start], 1.0, dates[start]
+    worst_dd, wp, wt, wpd, wtd = 0.0, 1.0, 1.0, "", ""
+    for i in range(start + 1, len(rets)):
+        eq *= 1 + rets[i]
+        if eq > peak:
+            peak, pd_ = eq, dates[i]
+        dd = eq / peak - 1
+        if dd < worst_dd:
+            worst_dd, wp, wt, wpd, wtd = dd, peak, eq, pd_, dates[i]
+    return wp, wpd, wt, wtd, eq
+
+
+def diagnose(p, since, log=print):
+    ds = p["dates"]
+    start = next(i for i, d in enumerate(ds) if d >= since)
+    ex, total = extreme_moves(p)
+    log(f"\nDATENPRUEFUNG: {total} Tagesspruenge ueber +300% oder unter -90% in den Rohdaten (die groessten):")
+    for _, s, d, r in ex:
+        log(f"  {s:<12}{d}  {r * 100:+10.0f}%")
+    for name, (L, f, mode) in {"Momentum L=30, SMA100": (30, True, "mom"), "Top-30 gleichgewichtet": (0, False, "ew")}.items():
+        tr = []
+        r, _ = backtest(p, start, L, f, 20, mode=mode, trace=tr)
+        pk, pkd, tv, tvd, end = equity_path(r, ds, start)
+        log(f"\n{name} (Kosten 20): Start 1.00, Spitze {pk:.2f} am {pkd}, tiefster Punkt danach {tv:.2f} am {tvd}, Ende {end:.2f}")
+        log("  Rendite je Kalenderjahr: " + ", ".join(f"{y} {v['total'] * 100:+.0f}%" for y, v in yearly(ds[start + 1:], r[start + 1:]).items()))
+        worst = sorted(range(start + 1, len(r)), key=lambda i: r[i])[:4]
+        for i in worst:
+            contrib = sorted(((c, s) for j, s, c in tr if j == i), reverse=True)
+            top = ", ".join(f"{s} {c * 100:+.1f}%" for c, s in contrib[-3:][::-1])
+            log(f"  schlechtester Tag {ds[i]}: {r[i] * 100:+.1f}% (Beitraege: {top})")
+        best = sorted(range(start + 1, len(r)), key=lambda i: -r[i])[:3]
+        for i in best:
+            contrib = sorted(((c, s) for j, s, c in tr if j == i), reverse=True)
+            top = ", ".join(f"{s} {c * 100:+.1f}%" for c, s in contrib[:3])
+            log(f"  bester Tag {ds[i]}: {r[i] * 100:+.1f}% (Beitraege: {top})")
+
+
 def fmt(s):
     return f"{s['cagr'] * 100:+7.1f}% {s['sharpe']:>6.2f} {s['max_dd'] * 100:+8.1f}%"
 
@@ -200,12 +254,16 @@ def report(p, since, log=print):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="xsmom")
     ap.add_argument("--dir", default="data/quant_universe")
+    ap.add_argument("--diagnose", action="store_true", help="nur Datenpruefung und Pfadanalyse (ohne die lange Tabelle)")
     a = ap.parse_args(argv)
     raw = load_dir(a.dir)
     p = build_panel(raw)
     print(f"{len(raw)} Symbole geladen, {len(p['close'])} nach Entfernen von Stablecoins, {p['dates'][0]} bis {p['dates'][-1]}")
     n_gone = sum(1 for s in p["last"] if p["last"][s] < len(p["dates"]) - 3)
     print(f"davon mit Datenende vor heute (ausgelistet oder eingestellt): {n_gone}")
+    if a.diagnose:
+        diagnose(p, "2020-11-30")
+        return
     report(p, "2020-11-30")
     report(p, "2019-07-01")
     print("\nHinweise: Parameter vorab festgelegt, 12 Laeufe pro Zeitraum. Ausgelistet-Abschlag 5% ist eine Annahme. Fehlende Coins (nie auf Binance) und Umbenennungen bleiben Rest-Verzerrung.")
