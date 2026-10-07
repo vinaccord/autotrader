@@ -221,12 +221,18 @@ def run(cfg, plan, session=None, now=None, log=print, address=None, sender=None)
 
     wid = "A"
     ks_path = os.path.join(cfg["data_dir"], f"killswitch_{wid}_{'live' if live else 'dryrun'}.json")
-    state = killswitch.load(ks_path) or killswitch.new_state(equity)
-    state, ks = killswitch.evaluate(state, equity, plan["kill_switch"])
-    killswitch.save(ks_path, state)
+    state = killswitch.load(ks_path)
+    early = []
+    if state is None and equity <= 0:
+        # Kein Zustand mit Hoechststand 0 anlegen (er wuerde als 100% Verlust sofort einen klebenden Stopp setzen). Erster Lauf wartet auf Guthaben.
+        early.append("Kontowert 0 oder unbekannt, kein Kill-Switch-Zustand angelegt")
+        ks = {"level": "normal", "dd": 0.0, "exposure_mult": 1.0, "changed": False, "previous": "normal", "reasons": []}
+    else:
+        state, ks = killswitch.evaluate(state or killswitch.new_state(equity), equity, plan["kill_switch"])
+        killswitch.save(ks_path, state)
 
     sf = plan["safety"]
-    viol = []
+    viol = list(early)
     viol += safety.data_age(sig["as_of"], now, sf["max_data_age_hours"])
     try:
         viol += safety.source_divergence({c: ohlc[c][sig["as_of"]][3] for c in coins}, fetch_hl_closes(s, coins, sig["as_of"]), sf["max_source_divergence"])

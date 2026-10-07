@@ -283,6 +283,8 @@ class LiveRunTests(unittest.TestCase):
         out = self.h.run(self.cfg, self.plan, session=self.session(0, state, None), now=self.now, log=lambda *_: None, address="0xabc", sender=Sender())
         self.assertTrue(any("Perp-Konto" in v for v in out["violations"]))
         self.assertTrue(out["blocked"])
+        # kein klebender Stopp durch Hoechststand 0
+        self.assertFalse(os.path.exists(os.path.join(self.cfg["data_dir"], "killswitch_A_live.json")))
 
     def test_unified_account_same_value_in_both_is_not_flagged(self):
         state = {"usdc": 1000.0, "ubtc": 0.0, "perp": 1000.0, "seen": set()}
