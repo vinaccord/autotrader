@@ -1,0 +1,4 @@
+# Nur fuer echte Orders (hl_live.py). Nicht in requirements.txt, damit der Paper-Server das SDK nicht laedt.
+# Version festgenagelt; SDK_VERSION in autotrader/quant/hl_sender.py muss gleich sein.
+# Installation (SSH-Fenster, nur nach Freigabe): sudo -u autotrader /opt/autotrader/venv/bin/pip install -r /opt/autotrader/deploy/requirements-live.txt
+hyperliquid-python-sdk==0.24.0

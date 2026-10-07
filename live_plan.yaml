@@ -35,6 +35,8 @@ live:                         # gilt erst nach bestandenem Papier-Test und Patri
   start_usdc: 1000            # Startbetrag echtes Geld (Patrick, 7.10.2026). Die 10'000 im Papierkonto sind nur Papier.
   start_hold_weeks: 4         # mindestens 4 Wochen auf diesem Betrag, bevor aufgestockt wird
   topup_requires_approval: true   # Aufstockung nur auf ausdrueckliche Freigabe, nie automatisch
+  max_equity_usdc: 3000       # Obergrenze Kontowert live; darueber keine Orders (nicht freigegebene Aufstockung). Nur Patrick erhoeht.
+  armed_until: null           # JJJJ-MM-TT; hl_live sendet nur bis zu diesem Datum. Patrick setzt es kurz im Voraus, sonst null.
 
 kill_switch:                  # gemessen ab Hoechststand (High-Water-Mark), je Wallet und global
   warn_dd: 0.20

@@ -84,7 +84,7 @@ def plan_orders(target_by_coin, holdings, prices, sz_decimals, equity, wallet, d
     return orders, skipped
 
 
-def log_orders(path, rows):
+def log_orders(path, rows, fields=None):
     """Haengt an. Eine cloid wird nie zweimal protokolliert (idempotent)."""
     seen = set()
     if os.path.exists(path):
@@ -95,11 +95,11 @@ def log_orders(path, rows):
         return 0
     first = not os.path.exists(path) or os.path.getsize(path) == 0
     with open(path, "a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=LOG_FIELDS)
+        w = csv.DictWriter(f, fieldnames=fields or LOG_FIELDS)
         if first:
             w.writeheader()
         for r in new:
-            w.writerow({k: r.get(k, "") for k in LOG_FIELDS})
+            w.writerow({k: r.get(k, "") for k in (fields or LOG_FIELDS)})
         f.flush()
         os.fsync(f.fileno())
     return len(new)
@@ -181,10 +181,19 @@ def fetch_usdc_price(session):
     return float(r.json()["usd-coin"]["usd"])
 
 
-def run(cfg, plan, session=None, now=None, log=print, address=None):
-    """Ein Planlauf. Gibt dict mit orders, skipped, violations, ks, equity zurueck."""
-    if plan.get("mode", "dry-run") != "dry-run":
-        raise SystemExit("Live-Modus ist nicht freigegeben und nicht gebaut. Nur dry-run.")
+def run(cfg, plan, session=None, now=None, log=print, address=None, sender=None):
+    """Ein Planlauf. Gibt dict mit orders, skipped, violations, ks, equity zurueck.
+
+    Ohne sender: Trockenlauf (Papierkonto, nichts wird gesendet). Mit sender (nur ueber hl_live.py, mehrfach gesperrt): echte Orders,
+    echtes Konto (address Pflicht), eigener Kill-Switch-Zustand und eigenes Protokoll."""
+    live = sender is not None
+    mode = plan.get("mode", "dry-run")
+    if live and mode != "live":
+        raise SystemExit("Sender uebergeben, aber live_plan.yaml steht nicht auf mode: live.")
+    if not live and mode != "dry-run":
+        raise SystemExit("mode: live nur ueber hl_live.py. Dieser Lauf ist nur dry-run.")
+    if live and not address:
+        raise SystemExit("Live braucht HL_ACCOUNT_ADDRESS (echtes Konto).")
     s = session or requests.Session()
     now = now or dt.datetime.now(dt.timezone.utc)
     dates, ohlc, fund = data.load_all(cfg)
@@ -204,7 +213,7 @@ def run(cfg, plan, session=None, now=None, log=print, address=None):
     equity = usdc_free + sum(q * prices.get(t, 0.0) for t, q in holdings.items())
 
     wid = "A"
-    ks_path = os.path.join(cfg["data_dir"], f"killswitch_{wid}_dryrun.json")
+    ks_path = os.path.join(cfg["data_dir"], f"killswitch_{wid}_{'live' if live else 'dryrun'}.json")
     state = killswitch.load(ks_path) or killswitch.new_state(equity)
     state, ks = killswitch.evaluate(state, equity, plan["kill_switch"])
     killswitch.save(ks_path, state)
@@ -235,7 +244,38 @@ def run(cfg, plan, session=None, now=None, log=print, address=None):
     ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     rows = [dict(o, ts=ts, date=sig["as_of"], wallet=wid, status="blocked" if blocked else "planned", reason="; ".join(viol)) for o in orders]
     rows += [{"ts": ts, "date": sig["as_of"], "wallet": wid, "asset": a, "side": "", "status": "skipped", "reason": r, "cloid": cloid(wid, sig["as_of"], a, "skip", r)} for a, r in skipped]
-    log_orders(os.path.join(cfg["data_dir"], "orders_dryrun.csv"), rows)
+    if live:
+        cap = plan.get("live", {}).get("max_equity_usdc")
+        if cap is not None and equity > cap:
+            viol.append(f"Kontowert {equity:,.0f} USD ueber Obergrenze {cap:,.0f} (nicht freigegebene Aufstockung?)")
+            blocked = blocked or ks["level"] != "stop"
+        for r in rows:
+            if r["status"] == "planned" and blocked:
+                r["status"] = "blocked"
+    live_result = None
+    if live:
+        from . import hl_sender
+
+        live_log = os.path.join(cfg["data_dir"], "orders_live.csv")
+        plan_rows = [r for r in rows if r["status"] == "blocked" or r["status"] == "skipped"]
+        log_orders(live_log, plan_rows, hl_sender.SEND_FIELDS)
+        if not blocked and orders:
+            post = lambda body: hl_liquidity._post(s, body)
+            res, aborted = hl_sender.execute(
+                [dict(o, ts=ts, date=sig["as_of"], wallet=wid) for o in orders], sender, post, address,
+                lambda rr: log_orders(live_log, [dict(r, ts=ts, date=sig["as_of"], wallet=wid) for r in rr], hl_sender.SEND_FIELDS), log)
+            usdc2, hold2 = fetch_account(s, address)
+            equity2 = usdc2 + sum(q * prices.get(t, 0.0) for t, q in hold2.items())
+            target_tok = {UNIT[c]: tgt[c] for c in coins if c in UNIT}
+            actual_tok = {t: q * prices.get(t, 0.0) for t, q in hold2.items() if t in target_tok}
+            mism = safety.position_mismatch(target_tok, actual_tok, equity2, sf["max_position_mismatch"])
+            live_result = {"results": res, "aborted": aborted, "mismatch": mism, "equity_after": equity2}
+            for m in mism:
+                log(f"  ABGLEICH: {m}")
+            if aborted:
+                log("  ABBRUCH: Order fehlgeschlagen, restliche Orders nicht gesendet.")
+    else:
+        log_orders(os.path.join(cfg["data_dir"], "orders_dryrun.csv"), rows)
     if pst is not None and not blocked and orders:
         paper_save(paper_path, paper_fill(pst, orders, prices, plan.get("venue", {}).get("fees_bps", {}).get("spot_taker", 7.0)))
 
@@ -252,7 +292,7 @@ def run(cfg, plan, session=None, now=None, log=print, address=None):
         log(f"  Hinweis: {n}")
     for v in viol:
         log(f"  SICHERUNG: {v}")
-    return {"orders": orders, "skipped": skipped, "violations": viol, "blocked": blocked, "ks": ks, "equity": equity, "targets": tgt, "notes": notes}
+    return {"orders": orders, "skipped": skipped, "violations": viol, "blocked": blocked, "ks": ks, "equity": equity, "targets": tgt, "notes": notes, "live": live_result}
 
 
 def main(argv=None):
