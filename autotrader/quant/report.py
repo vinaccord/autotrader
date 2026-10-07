@@ -33,7 +33,7 @@ def snapshot(cfg, dates, ohlc, fund):
     return res, sig
 
 
-def build_report(main, core, paper_start, prev_state, today=None):
+def build_report(main, core, paper_start, prev_state, today=None, ledger_path=None):
     """main/core: dict mit cfg, dates, ohlc, fund. Gibt (text, neuer_state, warnungen) zurueck."""
     today = today or dt.datetime.now(dt.timezone.utc).date()
     out, warns = [], []
@@ -45,6 +45,13 @@ def build_report(main, core, paper_start, prev_state, today=None):
         car = {c: bool(v["in_position"]) for c, v in sig["carry"].items()}
         apr = {c: v["trailing_apr"] for c, v in sig["carry"].items()}
         state[key] = {"as_of": sig["as_of"], "trend": exp, "carry": car}
+        if ledger_path and key == "main":
+            try:
+                from . import ledger
+
+                ledger.update(ledger_path, "quant_40", sig, p["dates"], p["ohlc"])
+            except Exception as e:
+                warns.append(f"LEDGER nicht geschrieben ({type(e).__name__}: {e})")
         out.append(f"{name} (Stand {sig['as_of']}), Gewichte {sig['weights']}")
         out.append("  Trend: " + ", ".join(f"{c} {e:.2f}" for c, e in exp.items()))
         out.append("  Carry: " + ", ".join(f"{c} {'IN' if car[c] else 'flat'} (Funding {apr[c] * 100:.1f}% p.a.)" if apr[c] is not None else f"{c} {'IN' if car[c] else 'flat'}" for c in car))
@@ -148,7 +155,7 @@ def main(argv=None):
     if os.path.exists(sp):
         with open(sp, encoding="utf-8") as f:
             prev = json.load(f)
-    text, state, warns = build_report(m, c, a.paper_start, prev)
+    text, state, warns = build_report(m, c, a.paper_start, prev, ledger_path=os.path.join(d, "ledger.csv"))
     with open(os.path.join(d, "latest_report.txt"), "w", encoding="utf-8") as f:
         f.write(text)
     with open(sp, "w", encoding="utf-8") as f:

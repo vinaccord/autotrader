@@ -33,10 +33,18 @@ step() {  # step NAME KOMMANDO...
   fi
 } >> "$LOG" 2>&1
 
+# Dead-Man-Switch: Healthchecks.io meldet sich selbst, wenn der Ping ausbleibt (Server aus, Timer tot).
+# HC_PING_URL steht in /opt/autotrader/.env, z.B. https://hc-ping.com/<uuid>
+hc() {  # hc "" | hc /fail
+  [ -n "${HC_PING_URL:-}" ] && curl -fsS -m 15 --retry 3 "${HC_PING_URL}$1" >/dev/null 2>&1 || true
+}
+
 if [ ${#FAILED[@]} -gt 0 ]; then
+  hc /fail
   if [ -n "${NTFY_TOPIC:-}" ]; then
     curl -s -m 20 -H "Title: Autotrader: FEHLER" -H "Priority: urgent" \
       -d "Fehlgeschlagen: ${FAILED[*]}. Details: sudo tail -n 80 $LOG" "https://ntfy.sh/$NTFY_TOPIC" >/dev/null || true
   fi
   exit 1
 fi
+hc ""

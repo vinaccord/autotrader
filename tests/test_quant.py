@@ -261,6 +261,45 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn("VERALTET", " ".join(warns2))
 
 
+class LedgerTests(unittest.TestCase):
+    def test_append_only_no_duplicates_and_realised(self):
+        import csv
+        import tempfile
+        from autotrader.quant import ledger
+        dates, ohlc, fund = synth_market(300)
+        o = {"BTC": ohlc}
+        path = os.path.join(tempfile.mkdtemp(), "ledger.csv")
+
+        def sig(asof):
+            return {"as_of": asof, "trend": {"BTC": {"target_exposure": 0.7}}, "carry": {"BTC": {"in_position": True}}, "weights": {"trend": 0.7, "carry": 0.3}}
+
+        d1 = dates[:200]
+        self.assertEqual(ledger.update(path, "p", sig(d1[-1]), d1, o), (1, 0))
+        self.assertEqual(ledger.update(path, "p", sig(d1[-1]), d1, o), (0, 0))  # idempotent
+        before = open(path, encoding="utf-8").read()
+        d2 = dates[:201]
+        self.assertEqual(ledger.update(path, "p", sig(d2[-1]), d2, o), (1, 1))
+        after = open(path, encoding="utf-8").read()
+        self.assertTrue(after.startswith(before))  # nur angehaengt
+        rows = list(csv.DictReader(open(path, encoding="utf-8")))
+        real = [r for r in rows if r["kind"] == "realised"][0]
+        self.assertEqual(real["date"], d1[-1])
+        self.assertAlmostEqual(float(real["next_day_ret"]), o["BTC"][dates[200]][3] / o["BTC"][d1[-1]][3] - 1, places=5)
+
+    def test_report_writes_ledger(self):
+        import tempfile
+        from autotrader.quant import report
+        dates, ohlc, fund = synth_market(1300)
+        cfg = copy.deepcopy(QCFG)
+        cfg["coins"] = ["BTC"]
+        m = {"cfg": cfg, "dates": dates, "ohlc": {"BTC": ohlc}, "fund": {"BTC": fund}}
+        c = {"cfg": cfg, "dates": dates, "ohlc": {"BTC": ohlc}, "fund": {"BTC": fund}}
+        path = os.path.join(tempfile.mkdtemp(), "ledger.csv")
+        _, _, warns = report.build_report(m, c, dates[-10], None, today=dt.date.fromisoformat(dates[-1]), ledger_path=path)
+        self.assertTrue(os.path.exists(path))
+        self.assertFalse(any("LEDGER" in w for w in warns))
+
+
 class MacroTests(unittest.TestCase):
     def test_parse_fng_and_gdelt(self):
         from autotrader.quant import macro

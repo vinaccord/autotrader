@@ -263,6 +263,13 @@ Begründung:
 | 3 | Wochen 4–8 | Scout-Pipeline (Hyperliquid neue Perps/Spot, CoinGecko Trending/Kategorien, GoPlus, LLM-Zusammenfassung über Groq); Nachrichten-Feeds aus 6.5 in den Tagesbericht |
 | 4 | ab ca. 1.12.2026, nur mit Patricks Freigabe | Wallet A klein live; Split nach 6.2, sobald Explorer bestanden hat und 10'000 USDC erreicht sind |
 
+**Stand Phase 0 (7.10., Sonnet 5.5):**
+- Ledger gebaut (`quant/ledger.py`, `data/quant/ledger.csv`, vom Tagesbericht geschrieben, Test `LedgerTests`). Offen: auf dem Server verifizieren, nach dem ersten Lauf nach Update.
+- Dead-Man-Switch im Code (`HC_PING_URL` in `.env`, Ping am Ende von `quant_daily.sh`, `/fail` bei Fehlern). Offen: Patrick legt Healthchecks-Check an (Periode 1 Tag, Grace 12 h) und setzt die URL.
+- Haertung als `deploy/harden.sh` (ufw, fail2ban, Passwort-Login aus, GitHub-Host-Key aus api.github.com/meta, Logrotate). Offen: Patrick fuehrt es auf dem Server aus.
+- Offen: Update-Pfad (Punkt 1). Auto-Update bleibt in der Paper-Phase an und wird vor Live abgeschaltet; Umbau auf signierte Tags erst, wenn Live naht.
+- GDELT-Ergebnis: noch nicht geprueft (Server-Zugriff noetig).
+
 ## 9. Entscheidungen
 
 **Entschieden am 7.10.2026** (Patrick hat die Wahl an Claude delegiert, Werte in `live_plan.yaml`):
