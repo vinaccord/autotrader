@@ -90,7 +90,7 @@ Der alte DEX-Agent (`autotrader/agent.py`, `adapt.py`, `security.py`, `risk.py`,
 **P0 – vor jedem Live-Geld**
 1. **Auto-Deploy läuft als root aus GitHub.** Wer auf `main` pushen kann (auch eine KI-Session oder ein geleakter Token), hat innerhalb von 24 h root auf dem Server. Umbau: `update.sh` ausserhalb des Repos, root-eigen; Fetch als unprivilegierter Benutzer; signierte Tags (`git verify-tag`) und Branch-Schutz; Units nicht automatisch installieren. **Vor Live: Auto-Update abschalten** (`systemctl disable --now quant-update.timer`) und Updates nur nach Patricks Freigabe.
 2. **Live-Ausführung existiert nicht.** Siehe Abschnitt 7.
-3. **Trend über Perps kostet Funding.** Der Backtest rechnet den Trend mit Spot-Renditen. Wird live über Perps long gehandelt, zahlt man Funding (zeitweise 10%+ p.a.). Entweder Funding-Kosten in den Trend-Backtest einbauen (Perp-Variante) oder Spot nutzen. Hyperliquid hat Spot für UBTC/UETH/USOL über die Unit-Bridge (2-von-3-Guardian-Modell, laut hyperliquidguide.com kein öffentlich bestätigtes Audit). Beide Varianten durchrechnen, Patrick entscheiden lassen.
+3. **Trend über Perps kostet Funding** (Long zahlt im neutralen Markt rund 11.6% p.a.). Entschieden: Trend über Spot (7.1). Der Backtest muss Spot-Kosten (7 bps Taker + Slippage) abbilden, die Perp-Variante läuft als Vergleich mit echtem Hyperliquid-Funding.
 4. **Papier-Ergebnis wird täglich neu berechnet**, es gibt kein festes Protokoll. Ein append-only Ledger einführen (`data/quant/ledger.csv`: Datum, Zielgewichte je Coin und Teil, Preis zum Signalzeitpunkt, realisierte Rendite des Folgetags). Das ist der echte Track-Record für die Live-Entscheidung.
 5. **Ausführungsverzögerung nicht abgebildet.** Backtest füllt zum Tagesschluss, der Job läuft 01:05 UTC. Sensitivität mit 1 Bar Verzögerung bzw. Open des Folgetags rechnen.
 6. **Dead-Man-Switch fehlt.** Kommt gar keine Meldung (Server aus), merkt es niemand. Healthchecks.io (gratis) oder ein zweiter Check, der nach 36 h ohne Bericht alarmiert.
@@ -130,17 +130,21 @@ Patricks Wortlaut sinngemäss: Strategie soll sich laufend an Markt und Gegebenh
 - Neue Strategien durchlaufen eine feste Promotion: Backtest (Kosten x2, 1 Bar Verzögerung) → mindestens 8 Wochen Paper im Ledger → kleiner Live-Anteil → volle Gewichtung. Abstieg automatisch bei Verletzung von Grenzen (z.B. Drawdown grösser als 1.5x Backtest-Maximum).
 - Kein LLM entscheidet über Positionen. LLMs liefern höchstens Zusammenfassungen und Risiko-Flags.
 
-### 6.2 Wallet-Split
+### 6.2 Wallet-Split (entschieden 7.10., Werte in `live_plan.yaml`)
 
-**Wichtiger technischer Punkt:** Hyperliquid-Agent-Keys können handeln, aber nicht abheben oder überweisen (dexly.trade, Stand Juni 2026). Ein Bot kann den Split also nicht selbst ausführen, ohne einen Vollzugriffs-Schlüssel zu halten. Das will man nicht.
+**Technische Grenze:** Hyperliquid-Agent-Keys können handeln, aber nicht abheben oder überweisen (dexly.trade, Stand Juni 2026). Der Bot kann den Split nicht selbst ausführen, ohne einen Vollzugriffs-Schlüssel zu halten. Das ist ausgeschlossen. Der Bot meldet, Patrick überweist.
 
-**Vorschlag**
-- Schwelle in der Config (`split.threshold_usd`, Vorschlag 25'000 USDC). Wird sie erreicht, meldet der Bot per ntfy: "Schwelle erreicht, bitte X USDC auf Wallet B überweisen". Patrick überweist mit seiner Hauptwallet.
-- **Wallet A "Core":** Trend BTC/ETH + Carry (Spill), wie heute.
-- **Wallet B "Explorer":** Querschnitts-Momentum auf dem dynamischen Universum inkl. geprüfter neuer Tokens (6.3, 6.4).
-- Jede Wallet: eigener Agent-Key, eigener Prozess, eigene Config, eigene Limits. Ein gemeinsamer Supervisor hat nur die globale Notbremse (z.B. Gesamtverlust -30% → beide flat) und den Tagesbericht.
-- Risikostreuung entsteht so nur bei den Strategien. Gegen Plattformrisiko hilft nur eine zweite Plattform für Wallet B. Offene Frage an Patrick (Abschnitt 9).
-- Rebalancing zwischen A und B: höchstens quartalsweise, als Vorschlag per ntfy, Ausführung durch Patrick.
+**Entscheid**
+- **Zwei getrennte Wallets** (zwei MetaMask-Adressen, je ein eigenes Hyperliquid-Konto mit eigenem Agent-Key). Keine Sub-Accounts: Die gibt es laut Hyperliquid-Doku erst ab 100'000 USD Handelsvolumen.
+- **Keine Kaskade A → B → C.** Krypto-Coins sind stark korreliert. Mehr Wallets auf derselben Plattform mit ähnlichen Coins senken das Marktrisiko kaum. Ein Split lohnt nur, wenn die zweite Wallet eine eigenständige, getestete Strategie fährt. Davon haben wir genau zwei: Core und Explorer.
+- **Auslöser für den Split** (beides muss erfüllt sein):
+  1. Die Explorer-Strategie hat ihren Backtest (Kosten x2, 1 Bar Verzögerung) und 8 Wochen Paper im Ledger bestanden.
+  2. Gesamtkapital mindestens 10'000 USDC. Begründung (eigene Abwägung, keine Studie): Explorer hält etwa 5 Positionen. Ab etwa 3'000 USDC in Wallet B liegt jede Position weit über dem Mindestorderwert und die Gebühren fallen nicht ins Gewicht. Darunter bringt der Split wenig und kostet Komplexität.
+- **Aufteilung:** 70% Core (Wallet A), 30% Explorer (Wallet B).
+- **Rebalancing:** Quartalsweise prüfen. Weicht die Aufteilung um mehr als 10 Prozentpunkte ab, schickt der Bot per ntfy den Betrag und die Richtung. Patrick überweist.
+- **Dritte Wallet:** erst ab 100'000 USDC Gesamtkapital, nur mit einer dritten, eigenständig getesteten Strategie und dann auf einer zweiten Plattform (gegen Plattformrisiko). Vorher nicht.
+- **Rollen:** Wallet A "Core" = Trend BTC/ETH (Spot) + Carry, Spill-Variante. Wallet B "Explorer" = Querschnitts-Momentum auf dem dynamischen Universum inkl. geprüfter neuer Tokens (6.3, 6.4).
+- **Betrieb:** je Wallet eigener Prozess, eigene Config, eigene Limits. Ein Supervisor hält nur die globale Notbremse (7.2) und den gemeinsamen Tagesbericht.
 
 ### 6.3 Dynamisches Coin-Universum
 
@@ -161,27 +165,38 @@ Patricks Wortlaut sinngemäss: Strategie soll sich laufend an Markt und Gegebenh
 
 **Vorschlag: Scout-Pipeline mit Stufen, Aufstieg nur nach Regeln**
 1. **Erkennen (täglich):** neue Perps auf Hyperliquid (`meta`), neue Listings auf Binance (Ankündigungen), CoinGecko keyless `/search/trending` und `/coins/categories` (10–30 Abrufe/Minute laut Doku). Kategorien mit stark steigender Marktkapitalisierung als "Trend" markieren.
-2. **Prüfen:** Sicherheitscheck (`security.py`, GoPlus, fail-closed), Tokenomics (FDV/Marktkapitalisierung, Unlock-Termine, Konzentration der Halter), Liquidität. LLM fasst Whitepaper und Doku zusammen und liefert Risiko-Flags, aber kein Kaufsignal. Braucht einen Anthropic-API-Key mit Monatslimit.
+2. **Prüfen:** Sicherheitscheck (`security.py`, GoPlus, fail-closed), Tokenomics (FDV/Marktkapitalisierung, Unlock-Termine, Konzentration der Halter), Liquidität. LLM fasst Whitepaper und Doku zusammen und liefert Risiko-Flags, aber kein Kaufsignal. LLM über einen kostenlosen API-Tarif, siehe 6.5.
 3. **Watchlist / Quarantäne:** Daten sammeln, bis Mindestalter und Mindestvolumen erreicht sind.
 4. **Universum:** Erfüllt der Token die Regeln aus 6.3, kommt er ins Universum. Dann entscheidet allein das Momentum-Ranking.
 5. **Grenzen:** max. 5% je Coin, neue Coins (unter 1 Jahr) zusammen max. 20% von Wallet B.
 
 So wird ein neuer Trend automatisch und schnell berücksichtigt, aber nicht vor der Mindestprüfung.
 
-### 6.5 Nachrichtenquellen (gratis)
+### 6.5 Nachrichtenquellen und LLM (kostenlos, entschieden 7.10.)
 
-| Quelle | Inhalt | Status |
-|---|---|---|
-| alternative.me Fear & Greed | Stimmung, Historie ab 2018 | läuft; als Filter wirkungslos |
-| GDELT DOC 2.0 | Tonalität nach Stichwort, nur rollende 3 Monate | 429 vom Server, Fix aktiv, prüfen |
-| RSS: CoinDesk, Cointelegraph, The Block, Decrypt | Schlagzeilen | nicht gebaut |
-| Fed, SEC (RSS der Pressemitteilungen) | Zinsen, Regulierung | nicht gebaut, URLs prüfen |
-| Hyperliquid `meta` / `metaAndAssetCtxs` | neue Perps, Funding, Open Interest | nicht gebaut |
-| CoinGecko keyless | Trending, Kategorien, Märkte | nicht gebaut |
-| DefiLlama | TVL, Gebühren; Unlocks evtl. nur Pro | prüfen |
-| X/Twitter (Musk usw.) | | kostenpflichtig, ausgeschlossen |
+**Quellen**
 
-Regel: Nachrichten dienen als Risiko-Flags und fürs Scouting. In Positionen fliessen sie nur, wenn ein Backtest den Nutzen zeigt. Bisher hat kein Nachrichten- oder Stimmungssignal einen Nutzen gezeigt.
+| Quelle | Inhalt | Kosten | Status |
+|---|---|---|---|
+| alternative.me Fear & Greed | Stimmung, Historie ab 2018 | gratis | läuft; als Filter wirkungslos |
+| GDELT DOC 2.0 | Tonalität nach Stichwort, nur rollende 3 Monate | gratis | 429 vom Server, Fix aktiv, prüfen |
+| RSS: CoinDesk, Cointelegraph, The Block, Decrypt | Schlagzeilen | gratis | bauen, Feed-URLs prüfen |
+| Fed, SEC, Weisses Haus (RSS der Pressemitteilungen) | Zinsen, Regulierung, Erlasse | gratis | bauen, URLs prüfen |
+| Truth Social (Trump) über das Archiv `https://www.trumpstruth.org/feed` | Posts, Archiv prüft "every few minutes" laut FAQ | gratis | bauen; Drittanbieter, Nutzungsbedingungen für automatischen Abruf unklar, kann wegfallen; höchstens alle 15 min abrufen |
+| Hyperliquid `meta`, `spotMeta`, `metaAndAssetCtxs` | neue Perps/Spot-Paare, Funding, Open Interest | gratis | bauen |
+| CoinGecko keyless | Trending, Kategorien, Märkte; 10–30 Abrufe/min | gratis | bauen |
+| DefiLlama | TVL, Gebühren; Unlocks evtl. nur Pro | gratis/prüfen | prüfen |
+| X/Twitter (Musk usw.) | Posts | 0.005 USD pro gelesenem Post, kein Gratis-Lesezugriff seit Feb. 2026 (opentweet.io, Juli 2026) | ausgeschlossen; 10 Konten kosten grob 10–30 USD/Monat, nur auf Patricks Wunsch |
+
+Regel: Nachrichten dienen als Risiko-Flags, für das Scouting und für den Tagesbericht. In Positionen fliessen sie nur, wenn ein Backtest den Nutzen zeigt. Bisher hat kein Nachrichten- oder Stimmungssignal einen Nutzen gezeigt. Posts von Politikern bewegen Kurse innerhalb von Minuten. Ein Tagessystem kommt dafür zu spät.
+
+**LLM für Zusammenfassungen (Whitepaper, Nachrichten): kostenloser API-Tarif statt Anthropic-Key**
+- **Primär: Groq Free Tier.** Laut ianlpaterson.com (Stand August 2026): u.a. `llama-3.3-70b-versatile`, `gpt-oss-120b`, `qwen3-32b`; 14'400 Anfragen/Tag, 6'000 Tokens/Minute, keine Kreditkarte, kommerzielle Nutzung erlaubt. OpenAI-kompatible Schnittstelle, also mit `requests` ohne extra SDK nutzbar.
+- **Fallback: Google Gemini Flash (Free Tier),** dann Mistral (Free/Developer).
+- Gratis-Tarife ändern sich ohne Vorwarnung. Code muss ohne LLM weiterlaufen (Zusammenfassung fehlt dann, sonst nichts).
+- Nur öffentliche Texte senden. Gratis-Tarife können Daten zum Training nutzen. Das ist hier unkritisch, weil nichts Privates übermittelt wird.
+- **Lokales Open-Source-Modell auf dem Server: nicht sinnvoll.** Der VPS hat 2 GB RAM und 1 vCPU. Ein brauchbares Modell (7–8 Mrd. Parameter, quantisiert) braucht grob 6–8 GB RAM und wäre auf einer CPU sehr langsam (eigene Schätzung). Ein grösserer Server kostet mehr, als die Gratis-API spart.
+- Key-Ablage: `GROQ_API_KEY` in `/opt/autotrader/.env`. Patrick legt den Key selbst an und trägt ihn ein. Nie im Chat.
 
 ### 6.6 Weitere Algorithmen, die sich testen lassen
 - Funding als Stimmungsfilter (extrem hohes Funding → Trend-Position kürzen).
@@ -193,33 +208,74 @@ Jeder Test: Zahl der Varianten nennen, Kosten x2, 1 Bar Verzögerung, Jahre einz
 
 ## 7. Live-Ausführung (noch nicht gebaut)
 
-- Plattform: Hyperliquid, Login mit neuer, dedizierter MetaMask-Wallet, Einzahlung USDC über Arbitrum, Agent-Key für den Bot (kann nicht abheben).
-- Zu bauen: `quant/hl_exec.py`
-  - Kontostand und Positionen über das Info-Endpoint lesen (öffentlich per Adresse, auch im Trockenlauf ohne Key).
-  - Zielgewichte → Zielmengen, Rundung nach `szDecimals`, Mindestorderwert (nach meinem Wissen 10 USD, in der offiziellen Doku prüfen), Limit-Orders mit maximalem Slippage, idempotente Client-Order-IDs.
-  - Abgleich Soll/Ist nach jeder Ausführung, Alarm bei Abweichung.
-  - Sicherungen: Kill-Switch bei Verlust X% ab Start (Patrick entscheidet, Vorschlag -30%), Handelsstopp bei veralteten Daten, Obergrenze je Order und je Tag, Alarm bei USDC-Kurs unter 0.99.
-  - Modus `dry-run` (nur protokollieren) als Standard. `live` nur mit Schalter in der Config und Patricks ausdrücklicher Freigabe.
+### 7.1 Plattform und Ausführung (entschieden 7.10.)
+
+**Entscheid: Hyperliquid, Trend über Spot (UBTC/UETH gegen USDC), Carry über Spot long + Perp short.**
+
+Begründung:
+- **Perps kosten beim Long-Trend Funding.** Laut Hyperliquid-Doku ist die Zinskomponente fest 0.01% pro 8 Stunden, "11.6% APR paid to short". In einem neutralen Markt zahlt ein Long also rund 11.6% pro Jahr. Bei durchschnittlich etwa 70% Trend-Exposure wären das grob 8 Prozentpunkte Rendite pro Jahr weniger (eigene Rechnung). Das frisst einen grossen Teil des Backtest-Ertrags.
+- **Spot-Gebühren** (Basistarif): Taker 0.070%, Maker 0.040%. Perps: Taker 0.045%, Maker 0.015%. Der Trend handelt selten, die Gebührendifferenz ist klein gegen 11.6% Funding.
+- **Spot auf Hyperliquid** gibt es für BTC, ETH, SOL über die Unit-Bridge (UBTC, UETH, USOL). Risiko: 2-von-3-Guardian-Modell, laut hyperliquidguide.com (Sept. 2026) kein öffentlich bestätigtes Audit. Gegenmassnahme: Unit-Token nur halten, solange der Trend long ist; sonst USDC.
+- **Agent-Key** auf Hyperliquid kann handeln, aber nicht abheben. Das ist der wichtigste Sicherheitsvorteil.
+- **Verworfen:**
+  - MetaMask-Swaps: 0.875% Gebühr pro Swap (cryptoslate.com, Coin Bureau). Zu teuer.
+  - Handel direkt aus der Wallet (MetaMask, MyEtherWallet) oder über Uniswap: Der Bot bräuchte den privaten Schlüssel der Wallet auf dem Server und könnte damit auch alles abheben. Ein Serverleck wäre ein Totalverlust.
+  - Zentrale Börse (Kraken, Binance o.ä.): KYC, oft höhere Spot-Gebühren, Gegenparteirisiko. Kein Vorteil gegenüber Hyperliquid für diesen Zweck.
+- **Vor dem Bau prüfen (Sonnet):** Liquidität und Spread von UBTC/USDC und UETH/USDC über `spotMetaAndAssetCtxs`; Mindestorderwert in der offiziellen Doku; Backtest des Trends mit 7 bps Taker + Slippage; zum Vergleich die Perp-Variante mit echtem Hyperliquid-Funding (`fundingHistory`). Ergebnis Patrick zeigen.
+
+**Zu bauen: `quant/hl_exec.py`**
+- Kontostand und Positionen über das Info-Endpoint lesen (öffentlich per Adresse, im Trockenlauf ohne Key).
+- Zielgewichte → Zielmengen, Rundung nach `szDecimals`, Mindestorderwert, Limit-Orders mit maximalem Slippage, idempotente Client-Order-IDs.
+- Abgleich Soll/Ist nach jeder Ausführung, Alarm bei Abweichung.
+- Modus `dry-run` (nur protokollieren) als Standard. `live` nur mit Schalter in `live_plan.yaml` und Patricks ausdrücklicher Freigabe im Chat.
 - Offizielles Python-SDK von Hyperliquid prüfen (Signatur der Orders), Version festnageln.
 - Steuer-Export: alle Orders als CSV (Datum, Coin, Menge, Preis, Gebühr, Funding).
+
+### 7.2 Kill-Switch und Sicherungen (entschieden 7.10.)
+
+Gemessen am **Höchststand des Kontowerts** (High-Water-Mark), je Wallet und global:
+
+| Stufe | Auslöser | Aktion |
+|---|---|---|
+| Warnung | -20% ab Höchststand | ntfy-Warnung, sonst nichts |
+| Bremse | -30% ab Höchststand | Exposure halbieren; volle Exposure erst wieder, wenn der Verlust auf unter -20% zurückgeht |
+| Stopp | -40% ab Höchststand oder Kontowert unter 60% der Einzahlungen | alles verkaufen (USDC), Bot stoppt, Neustart nur nach Patricks Freigabe |
+
+Begründung:
+- Backtest-Maximum Spill -22.9%, Trend allein -28.4%. -30% liegt ausserhalb des bisher Gesehenen und deutet darauf hin, dass etwas anders läuft. -40% ist Patricks erklärte Toleranz.
+- Ein früher harter Stopp würde eine Trendstrategie in normalen Rückschlägen abwürgen. Kaminski & Lo ("When do stop-loss rules stop losses?", J. Financial Markets 2014) zeigen nach meinem Wissensstand, dass Stop-Regeln nur bei Momentum- oder Regimewechsel-Verhalten Wert schaffen und bei reinem Zufallsverlauf schaden. Die Seite selbst war nicht abrufbar (robots.txt). Deshalb gestuft: erst bremsen, dann stoppen.
+- Global: Fällt der Gesamtwert beider Wallets um -40% ab gemeinsamem Höchststand, stoppen beide.
+
+**Technische Sicherungen (sofortiger Handelsstopp + ntfy):**
+- Daten älter als 36 h oder Datenquelle uneinig (Binance vs. Hyperliquid > 3% Abweichung im Schlusskurs).
+- Soll/Ist-Abweichung der Positionen > 5% des Kontowerts nach Ausführung.
+- USDC-Kurs unter 0.98 → alles flat.
+- Einzelorder max. 25% des Kontowerts; Tagesumsatz max. 100% des Kontowerts.
+- Unit-Token (UBTC/UETH) weicht > 2% vom Referenzkurs ab → nicht kaufen, Alarm.
 
 ## 8. Roadmap
 
 | Phase | Zeitraum | Inhalt |
 |---|---|---|
 | 0 | sofort | P0-Punkte 1, 4, 6, 7 aus Abschnitt 5; GDELT-Ergebnis prüfen |
-| 1 | Wochen 1–4 | `hl_exec.py` im Trockenlauf; Trend Perp vs. Spot (Funding-Kosten) entscheiden; Verzögerungs-Sensitivität; P1-Punkte 9–11 |
+| 1 | Wochen 1–4 | Spot-Liquidität UBTC/UETH prüfen, Trend-Backtest mit Spot-Kosten und Perp-Funding-Vergleich; `hl_exec.py` im Trockenlauf mit Kill-Switch nach 7.2; Verzögerungs-Sensitivität; P1-Punkte 9–11 |
 | 2 | Wochen 2–6 | Strategie-Bibliothek, dynamisches Universum, Querschnitts-Momentum mit überlebensfreien Daten, Meta-Allokator; alles in den Ledger |
-| 3 | Wochen 4–8 | Scout-Pipeline (Hyperliquid neue Perps, CoinGecko Trending/Kategorien, GoPlus, LLM-Zusammenfassung) |
-| 4 | ab ca. 1.12.2026, nur mit Patricks Freigabe | Wallet A klein live; Split-Logik aktiv; Wallet B erst nach eigenen 8 Wochen Paper |
+| 3 | Wochen 4–8 | Scout-Pipeline (Hyperliquid neue Perps/Spot, CoinGecko Trending/Kategorien, GoPlus, LLM-Zusammenfassung über Groq); Nachrichten-Feeds aus 6.5 in den Tagesbericht |
+| 4 | ab ca. 1.12.2026, nur mit Patricks Freigabe | Wallet A klein live; Split nach 6.2, sobald Explorer bestanden hat und 10'000 USDC erreicht sind |
 
-## 9. Offene Entscheidungen für Patrick
+## 9. Entscheidungen
 
-1. Split-Schwelle (Vorschlag 25'000 USDC) und ob Wallet B auf einer zweiten Plattform laufen soll.
-2. Trend live über Spot (UBTC/UETH via Unit, Bridge-Risiko) oder Perps (Funding-Kosten).
-3. Kill-Switch-Höhe (Vorschlag -30% ab Start).
-4. Anthropic-API-Key mit Monatslimit für Whitepaper-Zusammenfassungen (Vorschlag max. 5 USD/Monat).
-5. Steuerberatung zur Frage gewerbsmässiger Handel (Schweiz) vor Live.
+**Entschieden am 7.10.2026** (Patrick hat die Wahl an Claude delegiert, Werte in `live_plan.yaml`):
+1. Split: zwei Wallets, 70/30, Auslöser Explorer bestanden + 10'000 USDC; keine Kaskade; dritte Wallet erst ab 100'000 USDC auf zweiter Plattform (6.2).
+2. Wallet B auf derselben Plattform (Hyperliquid), eigene Adresse und eigener Agent-Key (6.2).
+3. Trend über Spot auf Hyperliquid (UBTC/UETH), nicht über Perps (7.1).
+4. Kill-Switch gestuft -20/-30/-40% ab Höchststand (7.2).
+5. LLM über Groq Free Tier, Fallback Gemini/Mistral; kein Anthropic-Key; kein X (kostenpflichtig) (6.5).
+
+**Noch offen**
+- Steuerberatung zur Frage gewerbsmässiger Handel (Schweiz) vor Live.
+- Patrick legt einen Groq-Key an, sobald die Scout-Pipeline gebaut ist (Sonnet sagt Bescheid).
+- Ob X gegen Bezahlung (grob 10–30 USD/Monat) gewünscht ist: Standard nein.
 
 ## 10. Feste Regeln für die nächste Session
 
@@ -228,3 +284,17 @@ Jeder Test: Zahl der Varianten nennen, Kosten x2, 1 Bar Verzögerung, Jahre einz
 - Negative Ergebnisse klar melden und die Logik nicht trotzdem einbauen.
 - Netzwerkcode nur mit Fakes testbar, echter Test auf dem Server. Das jedes Mal sagen.
 - Kleine Commits, Tests grün vor jedem Push, Server holt um 00:50 UTC.
+
+## 11. Quellen der Entscheidungen vom 7.10.
+
+- Hyperliquid Docs, Fees: https://hyperliquid.gitbook.io/hyperliquid-docs/trading/fees
+- Hyperliquid Docs, Funding: https://hyperliquid.gitbook.io/hyperliquid-docs/trading/funding
+- Hyperliquid Docs, Sub-accounts: https://hyperliquid.gitbook.io/hyperliquid-docs/trading/sub-accounts
+- Unit Protocol Guide: https://hyperliquidguide.com/ecosystem/unit-protocol-guide
+- Agent Wallets: https://dexly.trade/learn/hyperliquid-trading-bots
+- MetaMask Swap-Gebühr 0.875%: https://cryptoslate.com/crypto-wallets/metamask-review/
+- Gratis-LLM-Tarife: https://ianlpaterson.com/blog/free-llm-api-2026/
+- X API Kosten: https://opentweet.io/how-to/x-api-pay-per-use-explained
+- Truth-Social-Archiv: https://www.trumpstruth.org/faq
+- CoinGecko keyless: https://docs.coingecko.com/docs/keyless-public-api
+- Kaminski & Lo (2014), When do stop-loss rules stop losses?: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=968338

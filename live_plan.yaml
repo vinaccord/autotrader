@@ -1,0 +1,55 @@
+# Live-Plan (Entscheidungen vom 7.10.2026, siehe docs/HANDOFF.md Abschnitte 6.2, 6.5, 7.1, 7.2).
+# Noch von keinem Code gelesen. Die naechste Session baut hl_exec.py und den Supervisor gegen diese Werte.
+mode: dry-run                 # dry-run | live. "live" nur nach Patricks ausdruecklicher Freigabe im Chat.
+
+venue:
+  name: hyperliquid
+  trend_execution: spot       # UBTC/UETH gegen USDC (Unit-Bridge). Perps nur als Backtest-Vergleich (Funding ~11.6% p.a. fuer Longs)
+  carry_execution: spot_long_perp_short
+  hold_unit_tokens_only_when_long: true
+  fees_bps: {spot_taker: 7.0, spot_maker: 4.0, perp_taker: 4.5, perp_maker: 1.5}   # Basistarif laut Doku, Okt. 2026
+
+wallets:
+  A:
+    role: core                # Trend BTC/ETH (Spot) + Carry, Spill
+    profile: quant_40.yaml
+  B:
+    role: explorer            # Querschnitts-Momentum, dynamisches Universum (noch nicht gebaut)
+    profile: null
+    enabled: false
+
+split:
+  min_total_usdc: 10000       # Split erst ab diesem Gesamtkapital ...
+  require_explorer_passed: true   # ... und nur wenn Explorer Backtest + 8 Wochen Paper bestanden hat
+  target: {A: 0.70, B: 0.30}
+  rebalance_check: quarterly
+  rebalance_band_pp: 10       # erst ab 10 Prozentpunkten Abweichung Ueberweisung vorschlagen (ntfy), Patrick fuehrt aus
+  third_wallet_min_total_usdc: 100000   # nur mit dritter, eigenstaendig getesteter Strategie und auf zweiter Plattform
+
+kill_switch:                  # gemessen ab Hoechststand (High-Water-Mark), je Wallet und global
+  warn_dd: 0.20
+  brake_dd: 0.30              # Exposure halbieren
+  brake_release_dd: 0.20      # volle Exposure erst wieder unter -20%
+  stop_dd: 0.40               # alles USDC, Bot stoppt, Neustart nur durch Patrick
+  stop_below_deposits: 0.60   # oder Kontowert < 60% der Einzahlungen
+  global_stop_dd: 0.40
+
+safety:
+  max_data_age_hours: 36
+  max_source_divergence: 0.03     # Binance vs. Hyperliquid Schlusskurs
+  max_position_mismatch: 0.05     # Soll/Ist nach Ausfuehrung, Anteil Kontowert
+  usdc_depeg_floor: 0.98
+  unit_token_max_deviation: 0.02
+  max_order_frac: 0.25
+  max_daily_turnover_frac: 1.0
+  max_slippage_bps: 30
+
+llm:
+  provider_order: [groq, gemini, mistral]   # Gratis-Tarife; Code muss ohne LLM weiterlaufen
+  groq_model: llama-3.3-70b-versatile
+  env_keys: {groq: GROQ_API_KEY, gemini: GEMINI_API_KEY, mistral: MISTRAL_API_KEY}
+
+news:
+  rss: []                     # Feed-URLs beim Bau pruefen (CoinDesk, Cointelegraph, The Block, Decrypt, Fed, SEC, Weisses Haus)
+  truth_social_feed: https://www.trumpstruth.org/feed   # Drittanbieter-Archiv, hoechstens alle 15 min
+  x_enabled: false            # kostenpflichtig (0.005 USD pro gelesenem Post)
