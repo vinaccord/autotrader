@@ -358,3 +358,33 @@ class KillSwitchCliTests(unittest.TestCase):
         self.call("reset", "--equity", "700", "--confirm")
         st = self.k.load(self.sp)
         self.assertEqual((st["level"], st["hwm"]), ("normal", 700))
+
+
+class ProtectionCheckTests(unittest.TestCase):
+    def test_all_scenarios_pass_with_repo_plan(self):
+        from autotrader.quant import protection_check as pc
+
+        lines = []
+        rc = pc.main(["--plan", os.path.join(os.path.dirname(__file__), "..", "live_plan.yaml")], out=lines.append)
+        self.assertEqual(rc, 0, "\n".join(lines))
+        text = "\n".join(lines)
+        for level in ("warn", "brake", "stop"):
+            self.assertIn(f"erhalten {level}", text)
+        self.assertGreaterEqual(text.count("erwartet Verstoss, erhalten Verstoss"), 6)
+
+    def test_loosened_threshold_is_detected(self):
+        import yaml
+        from autotrader.quant import protection_check as pc
+
+        with open(os.path.join(os.path.dirname(__file__), "..", "live_plan.yaml"), encoding="utf-8") as f:
+            plan = yaml.safe_load(f)
+        plan["safety"]["max_data_age_hours"] = 500
+        plan["kill_switch"]["stop_dd"] = 0.9
+        with tempfile.TemporaryDirectory() as t:
+            p = os.path.join(t, "plan.yaml")
+            with open(p, "w") as f:
+                yaml.safe_dump(plan, f)
+            lines = []
+            rc = pc.main(["--plan", p], out=lines.append)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any(l.strip().startswith("FAIL") for l in lines))
