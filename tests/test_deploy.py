@@ -126,5 +126,21 @@ class SignedUpdateTests(unittest.TestCase):
         self.assertEqual(self.update("v1").returncode, 3)
 
 
+class LockFileTests(unittest.TestCase):
+    def test_lock_pins_every_line_and_matches_sdk_version(self):
+        import re
+
+        root = os.path.join(os.path.dirname(__file__), "..")
+        with open(os.path.join(root, "deploy", "requirements-live.lock"), encoding="utf-8") as f:
+            lines = [x.strip() for x in f if x.strip() and not x.startswith("#")]
+        self.assertGreater(len(lines), 20)
+        for x in lines:
+            self.assertRegex(x, r"^[A-Za-z0-9_.\-]+==[0-9][A-Za-z0-9_.\-]*$")
+        from autotrader.quant import hl_sender
+
+        self.assertIn(f"hyperliquid-python-sdk=={hl_sender.SDK_VERSION}", lines)
+        self.assertEqual(len({x.split("==")[0].lower().replace("_", "-") for x in lines}), len(lines))  # keine Doppelten
+
+
 if __name__ == "__main__":
     unittest.main()
