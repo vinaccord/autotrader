@@ -1,6 +1,6 @@
 # Vorab festgelegter Test: Carry mit Hyperliquid-Funding (festgelegt 9.10.2026, vor dem ersten Lauf)
 
-Frage: Hat der Carry (Spot long, Perp short) nach Kosten einen brauchbaren Ertrag, wenn das Signal und der Ertrag aus dem Funding von Hyperliquid kommen, also dem Ort, an dem er ausgefuehrt wuerde? Bisher stammt der Backtest aus Binance-Funding, das auf Hyperliquid etwa halb so hoch ausfaellt (Ergebnis P1 12).
+Frage: Hat der Carry (Spot long, Perp short) nach Kosten einen brauchbaren Ertrag, wenn das Signal und der Ertrag aus dem Funding von Hyperliquid kommen, also dem Ort, an dem er ausgefuehrt wuerde? Bisher stammt der Backtest aus Binance-Funding. Hyperliquid zahlt im Mittel etwa das Doppelte (Ergebnis P1 12). Korrektur 12.10.: In der ersten Fassung stand hier fehlerhaft "halb so hoch"; die Regeln und Kriterien sind davon nicht betroffen und unveraendert.
 
 Werkzeug: `python -m autotrader.quant.carry_hl --config quant_40.yaml` (liest nur Cache-Dateien, optional `--fetch` holt die HL-Funding-Historie nach).
 
