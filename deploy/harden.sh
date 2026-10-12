@@ -55,7 +55,7 @@ fi
 cat > /etc/logrotate.d/autotrader <<'CONF'
 /opt/autotrader/data/quant/daily.log /opt/autotrader/data/quant/signals.log {
     weekly
-    rotate 8
+    rotate 26
     compress
     missingok
     notifempty

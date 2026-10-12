@@ -261,5 +261,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(d)), before)
 
 
+class RotatedLogTests(unittest.TestCase):
+    def test_reads_rotated_and_gzipped_logs_and_ignores_other_files(self):
+        import gzip
+        tmp = tempfile.mkdtemp()
+        old = "\n".join(block(f"2026-10-0{d}T01:05:00Z") for d in (6, 7))
+        mid = block("2026-10-08T01:05:00Z")
+        with gzip.open(os.path.join(tmp, "daily.log.2.gz"), "wt") as f:
+            f.write(old)
+        with open(os.path.join(tmp, "daily.log.1"), "w") as f:
+            f.write(mid)
+        with open(os.path.join(tmp, "daily.log"), "w") as f:
+            f.write(block("2026-10-09T01:05:00Z"))
+        with open(os.path.join(tmp, "daily.log.bak"), "w") as f:
+            f.write(block("2026-10-20T01:05:00Z"))
+        runs = ps.read_runs(tmp)
+        self.assertEqual([r["day"].day for r in runs], [6, 7, 8, 9])
+        r = ps.evaluate_a(runs, None, START, utc("2026-10-09T12:00:00"))
+        self.assertEqual(r["missed"], [])
+
+    def test_missing_dir_files_gives_no_runs(self):
+        self.assertEqual(ps.read_runs(tempfile.mkdtemp()), [])
+
+
 if __name__ == "__main__":
     unittest.main()

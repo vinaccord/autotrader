@@ -9,6 +9,8 @@ Exit-Code 1 nur, wenn ein Kriterium verletzt ist (A) bzw. B/C klar ausserhalb de
 import argparse
 import csv
 import datetime as dt
+import glob
+import gzip
 import json
 import os
 import re
@@ -39,6 +41,26 @@ def _csv(path):
         return None
     with open(path, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def read_runs(data_dir):
+    """Liest daily.log und die rotierten Dateien (daily.log.1, daily.log.2.gz, ...). Logrotate verschiebt woechentlich alte Laeufe dorthin."""
+    runs, seen = [], set()
+    for path in sorted(glob.glob(os.path.join(data_dir, "daily.log*"))):
+        rest = os.path.basename(path)[len("daily.log"):]
+        if rest and not re.fullmatch(r"\.\d+(\.gz)?", rest):
+            continue
+        try:
+            opener = gzip.open if path.endswith(".gz") else open
+            with opener(path, "rt", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        for r in parse_runs(text):
+            if r["ts"] not in seen:
+                seen.add(r["ts"])
+                runs.append(r)
+    return sorted(runs, key=lambda r: r["ts"])
 
 
 def parse_runs(text):
@@ -249,12 +271,7 @@ def main(argv=None, now=None):
     if a.today:
         now = dt.datetime.fromisoformat(a.today).replace(hour=12, tzinfo=dt.timezone.utc)
     now = now or dt.datetime.now(dt.timezone.utc)
-    log = os.path.join(d, "daily.log")
-    text = ""
-    if os.path.exists(log):
-        with open(log, encoding="utf-8", errors="replace") as f:
-            text = f.read()
-    runs = parse_runs(text)
+    runs = read_runs(d)
     ledger = _csv(os.path.join(d, "ledger.csv"))
     orders = _csv(os.path.join(d, "orders_dryrun.csv"))
     pp = os.path.join(d, "paper_account_A.json")
