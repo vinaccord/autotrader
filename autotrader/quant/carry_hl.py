@@ -63,8 +63,23 @@ def _walk(cfg, dates, ohlc, fund, costs, frac):
             continue
         per = [carry_returns(dates, fund[c], ohlc[c], p["lookback"], p["entry_apr"], p["exit_apr"], cc["lev"], costs, entry_day_frac=frac)[0] for c in cfg["coins"]]
         cands.append((p, basket(per)))
-    oos, off, _ = walk_forward(cands, wf["train_days"], wf["step_days"], wf["switch_cost_bps"] / 1e4)
-    return oos, off, len(cands)
+    oos, off, chosen = walk_forward(cands, wf["train_days"], wf["step_days"], wf["switch_cost_bps"] / 1e4)
+    return oos, off, len(cands), liq_events(cfg, dates, ohlc, fund, costs, frac, chosen)
+
+
+def liq_events(cfg, dates, ohlc, fund, costs, frac, chosen):
+    """Modellierte Liquidationen des Short-Beins innerhalb der Walk-Forward-Fenster: (Datum, Coin, Parameter).
+    Erkennung ueber die Tagesrendite eines Coins: eine Liquidation verbucht den Verlust der Margin 1/(lev+1) plus Kosten, normale Tage liegen weit darueber.
+    Kein neuer Lauf, nur dieselben Kandidatenreihen, die der Walk-Forward schon benutzt hat."""
+    lev = cfg["carry"]["lev"]
+    thr = -0.9 / (lev + 1)
+    bounds = [t for t, _ in chosen] + [len(dates)]
+    events = []
+    for k, (t, p) in enumerate(chosen):
+        for c in cfg["coins"]:
+            r = carry_returns(dates, fund[c], ohlc[c], p["lookback"], p["entry_apr"], p["exit_apr"], lev, costs, entry_day_frac=frac)[0]
+            events += [(dates[i], c, p) for i in range(t, bounds[k + 1]) if r[i] <= thr]
+    return events
 
 
 def summarize(rets):
@@ -87,12 +102,12 @@ def run_variants(cfg, dates, ohlc, bn, hl):
     out["V1 HL, Standard"], info["V1"] = summarize(r[off:]), i
     r, i = _fixed(cfg, dates, ohlc, hl, c2, HL_FRAC)
     out["V1x2 HL, Standard, Kosten x2"], info["V1x2"] = summarize(r[off:]), i
-    r, o, n = _walk(cfg, dates, ohlc, hl, costs, HL_FRAC)
-    out["V2 HL, Walk-Forward"] = summarize(r)
-    r, o, n = _walk(cfg, dates, ohlc, hl, c2, HL_FRAC)
-    out["V2x2 HL, Walk-Forward, Kosten x2"] = summarize(r)
-    r, o, n = _walk(cfg, dates, ohlc, bn, costs, 1.0)
-    out["V3 Binance, Walk-Forward"] = summarize(r)
+    r, o, n, ev = _walk(cfg, dates, ohlc, hl, costs, HL_FRAC)
+    out["V2 HL, Walk-Forward"], info["V2"] = summarize(r), {"events": ev}
+    r, o, n, ev = _walk(cfg, dates, ohlc, hl, c2, HL_FRAC)
+    out["V2x2 HL, Walk-Forward, Kosten x2"], info["V2x2"] = summarize(r), {"events": ev}
+    r, o, n, ev = _walk(cfg, dates, ohlc, bn, costs, 1.0)
+    out["V3 Binance, Walk-Forward"], info["V3"] = summarize(r), {"events": ev}
     return {"res": out, "info": info, "candidates": n, "window": (dates[off], dates[-1])}
 
 
@@ -105,6 +120,16 @@ def decide(res, info, min_cagr=0.04, max_dd=-0.10):
         ("Keine Liquidation (V1x2)", info["V1x2"]["liq"] == 0, f"{info['V1x2']['liq']} Liquidationen"),
     ]
     return all(c[1] for c in checks), checks
+
+
+def report_events(v, log=print):
+    """Zusatzangabe (nicht Teil der Vorabregel): modellierte Liquidationen je Walk-Forward-Lauf."""
+    log("Modellierte Liquidationen im Walk-Forward (1 Ereignis = Verlust der Margin eines Coins = rund 1/6 des Korbs bei 2 Coins, Hebel 2):")
+    for k, name in (("V2", "V2 HL"), ("V2x2", "V2x2 HL, Kosten x2"), ("V3", "V3 Binance")):
+        ev = v["info"][k]["events"]
+        log(f"  {name}: {len(ev)} Ereignis(se)")
+        for d, c, p in ev:
+            log(f"    {d} {c}, Parameter Lookback {p['lookback']}, Einstieg {p['entry_apr']:.0%}, Ausstieg {p['exit_apr']:.0%}")
 
 
 def report(v, missing, ndays, log=print):
@@ -127,6 +152,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="carry_hl")
     ap.add_argument("--config", default="quant_40.yaml")
     ap.add_argument("--fetch", action="store_true", help="HL-Funding-Historie vorher nachladen (Netzwerk)")
+    ap.add_argument("--details", action="store_true", help="zusaetzlich die modellierten Liquidationen je Walk-Forward-Lauf (kein neuer Lauf)")
     a = ap.parse_args(argv)
     with open(a.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
@@ -143,6 +169,8 @@ def main(argv=None):
         print(f"Nur {len(dates)} Tage, fuer {cfg['walkforward']['train_days']} Tage Training plus Fenster zu wenig.")
         return 1
     report(v, missing, len(dates))
+    if a.details:
+        report_events(v)
     return 0
 
 

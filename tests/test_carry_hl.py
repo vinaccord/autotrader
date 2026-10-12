@@ -83,5 +83,38 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(ch.doubled({"spot_fee_bps": 7, "slippage_bps": 2}), {"spot_fee_bps": 14, "slippage_bps": 4})
 
 
+class LiqEventTests(unittest.TestCase):
+    def test_liquidation_detected_in_window_only(self):
+        from test_quant import make_dates, make_ohlc
+
+        cfg = copy.deepcopy(QCFG)
+        cfg["coins"] = ["BTC"]
+        n = 160
+        dates = make_dates(n)
+        rets = [0.0] * n
+        rets[100] = 0.60  # Kurssprung +60%: Hoch ueber ref*(1+0.9/lev) -> Liquidation des Short-Beins
+        ohlc = make_ohlc(dates, rets)
+        fund = {d: 0.001 for d in dates}  # 36.5% p.a., Einstieg sofort
+        p = {"lookback": 7, "entry_apr": 0.12, "exit_apr": 0.04}
+        costs = cfg["costs"]
+        ev = ch.liq_events(cfg, dates, {"BTC": ohlc}, {"BTC": fund}, costs, 1.0, [(0, p)])
+        self.assertEqual([e[0] for e in ev], [dates[100]])
+        # Fenster, das den Sprung nicht enthaelt, zaehlt ihn nicht
+        self.assertEqual(ch.liq_events(cfg, dates[:90], {"BTC": {d: ohlc[d] for d in dates[:90]}}, {"BTC": {d: 0.001 for d in dates[:90]}}, costs, 1.0, [(0, p)]), [])
+
+    def test_variants_carry_events_and_report(self):
+        cfg = copy.deepcopy(QCFG)
+        cfg["coins"] = ["BTC"]
+        dates, ohlc, fund = synth_market(1100)
+        hl = {"BTC": {d: v * 1.2 for d, v in fund.items()}}
+        v = ch.run_variants(cfg, dates, {"BTC": ohlc}, {"BTC": fund}, hl)
+        out = []
+        ch.report_events(v, out.append)
+        text = "\n".join(out)
+        for k in ("V2 HL", "V2x2 HL", "V3 Binance"):
+            self.assertIn(k, text)
+        self.assertNotIn("ß", text)
+
+
 if __name__ == "__main__":
     unittest.main()
