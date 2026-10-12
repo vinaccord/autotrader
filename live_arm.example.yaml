@@ -1,0 +1,7 @@
+# Beispiel fuer die Live-Ueberlagerung. Wirksam wird nur eine Datei mit dem Namen live_arm.yaml, die per --arm uebergeben wird.
+# Sie darf nur `mode` und `live` setzen (Kill-Switch und Sicherungen bleiben aus live_plan.yaml).
+# Sie kommt nur nach Patricks ausdruecklicher Freigabe im Chat in ein signiertes Release und wird danach wieder entfernt.
+mode: live
+live:
+  armed_until: 2026-11-20      # JJJJ-MM-TT, hl_live sendet nur bis zu diesem Datum (Testtag)
+  max_equity_usdc: 150         # Kontowert-Obergrenze fuer den Test

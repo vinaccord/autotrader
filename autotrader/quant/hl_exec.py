@@ -50,7 +50,7 @@ def targets_usd(ew, exposures, equity, mult, coins):
 def plan_orders(target_by_coin, holdings, prices, sz_decimals, equity, wallet, date, min_order_usd=10.0, min_trade_frac=0.02, max_slip_bps=30.0, max_order_frac=0.25):
     """Orderplan fuer Unit-Token. holdings: Token -> Menge, prices: Token -> Mid, sz_decimals: Token -> int.
     Gibt (orders, skipped) zurueck. Orders unter min_trade_frac des Kontowerts werden nicht gehandelt (spart Gebuehren).
-    Grosse Aenderungen werden in Teilorders zu hoechstens 90% von max_order_frac des Kontowerts zerlegt (Einzelorder-Grenze der Sicherungen)."""
+    Grosse Aenderungen werden gleichmaessig in Teilorders zu hoechstens 90% von max_order_frac des Kontowerts zerlegt (Einzelorder-Grenze der Sicherungen), jedes Stueck mindestens min_order_usd, sonst wird die Aenderung uebersprungen."""
     orders, skipped = [], []
     for coin, tgt in target_by_coin.items():
         tok = UNIT.get(coin)
@@ -71,15 +71,22 @@ def plan_orders(target_by_coin, holdings, prices, sz_decimals, equity, wallet, d
             continue
         side = "buy" if delta > 0 else "sell"
         lim = sig_figs(px * (1 + max_slip_bps / 1e4) if side == "buy" else px * (1 - max_slip_bps / 1e4))
-        max_sz = floor_to(0.9 * max_order_frac * equity / px, sz_decimals[tok]) if equity > 0 else sz
+        dec = sz_decimals[tok]
+        max_sz = floor_to(0.9 * max_order_frac * equity / px, dec) if equity > 0 else sz
         parts = max(1, math.ceil(sz / max_sz)) if max_sz > 0 else 1
-        left = sz
-        for k in range(parts):
-            part = left if k == parts - 1 else max_sz
-            part = floor_to(part, sz_decimals[tok])
+        if parts > 1:
+            # Gleichmaessig teilen: jedes Stueck ist hoechstens max_sz und mindestens etwa die Haelfte davon, so bleibt kein winziges Reststueck
+            # unter dem Mindestwert uebrig (die Boerse lehnt es ab, der Sender wuerde abbrechen).
+            base = floor_to(sz / parts, dec)
+            if base * px < min_order_usd:
+                skipped.append((tok, f"Teilorders unter Mindestwert {min_order_usd:.0f} USD (Kontowert {equity:,.0f} USD zu klein fuer die Einzelorder-Grenze)"))
+                continue
+            sizes = [base] * (parts - 1) + [floor_to(round(sz - base * (parts - 1), dec + 3), dec)]
+        else:
+            sizes = [sz]
+        for k, part in enumerate(sizes):
             if part <= 0:
                 continue
-            left = floor_to(left - part, sz_decimals[tok])
             orders.append({"asset": tok, "side": side, "sz": part, "limit_px": lim, "usd": part * px, "cloid": cloid(wallet, date, tok, side, f"{sz}#{k}")})
     return orders, skipped
 

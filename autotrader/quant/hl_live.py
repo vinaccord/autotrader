@@ -1,10 +1,10 @@
 """Einziger Einstieg fuer echte Orders. NICHT im Tages-Timer, NICHT freigegeben. Nur nach Patricks ausdruecklicher Freigabe im Chat.
 
-python -m autotrader.quant.hl_live --config quant_40.yaml --plan live_plan.yaml --confirm-real-money
+python -m autotrader.quant.hl_live --config quant_40.yaml --plan live_plan.yaml --arm live_arm.yaml --confirm-real-money
 
 Alle Sperren muessen gleichzeitig offen sein, sonst Abbruch ohne Order:
-1. live_plan.yaml: mode: live
-2. live_plan.yaml: live.armed_until >= heutiges UTC-Datum (Patrick setzt das kurz im Voraus, z.B. auf den Testtag)
+1. mode: live, nur ueber die Ueberlagerung live_arm.yaml (live_plan.yaml bleibt dry-run, damit der Tageslauf nicht scheitert)
+2. live.armed_until (in live_arm.yaml) >= heutiges UTC-Datum (Patrick setzt das kurz im Voraus, z.B. auf den Testtag)
 3. Umgebung: HL_AGENT_KEY (Agent-Key, kann nicht abheben) und HL_ACCOUNT_ADDRESS (Hauptadresse), nie im Chat oder Repo
 4. Kommandozeile: --confirm-real-money
 5. SDK in genau der festgenagelten Version installiert (deploy/requirements-live.txt)
@@ -43,6 +43,23 @@ def check_gates(plan, args_confirm, env, today=None):
     return out
 
 
+ARM_KEYS = {"mode", "live"}
+
+
+def merge_arm(plan, arm):
+    """Ueberlagerung nur fuer den Live-Lauf: darf ausschliesslich `mode` und `live` (armed_until, Betragsgrenzen) setzen. Kill-Switch und
+    Sicherungen bleiben aus dem Plan, eine Ueberlagerung kann sie nicht lockern. `live_plan.yaml` bleibt dry-run, der Tageslauf ist unberuehrt."""
+    bad = sorted(set(arm) - ARM_KEYS)
+    if bad:
+        raise SystemExit(f"Ueberlagerung darf nur {sorted(ARM_KEYS)} setzen, nicht: {bad}")
+    out = dict(plan)
+    if "mode" in arm:
+        out["mode"] = arm["mode"]
+    if "live" in arm:
+        out["live"] = {**(plan.get("live") or {}), **(arm["live"] or {})}
+    return out
+
+
 def alert_text(res):
     """Kurztext ohne Betraege und Positionen (ntfy.sh ist oeffentlich). None = nichts zu melden."""
     live = res.get("live") or {}
@@ -71,11 +88,17 @@ def main(argv=None, env=None):
     ap = argparse.ArgumentParser(prog="hl_live")
     ap.add_argument("--config", default="quant_40.yaml")
     ap.add_argument("--plan", default="live_plan.yaml")
+    ap.add_argument("--arm", default=None, help="Ueberlagerungsdatei (nur mode und live), z.B. live_arm.yaml; ohne sie gilt live_plan.yaml unveraendert")
     ap.add_argument("--confirm-real-money", action="store_true")
     a = ap.parse_args(argv)
     env = os.environ if env is None else env
     with open(a.plan, encoding="utf-8") as f:
         plan = yaml.safe_load(f)
+    if a.arm:
+        if not os.path.exists(a.arm):
+            raise SystemExit(f"Keine Orders. Ueberlagerung {a.arm} nicht gefunden.")
+        with open(a.arm, encoding="utf-8") as f:
+            plan = merge_arm(plan, yaml.safe_load(f) or {})
     block = check_gates(plan, a.confirm_real_money, env)
     if block:
         raise SystemExit("Keine Orders. Gesperrt durch:\n  - " + "\n  - ".join(block))

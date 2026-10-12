@@ -156,6 +156,47 @@ class GateTests(unittest.TestCase):
             self.assertIn("Keine Orders", str(cm.exception))
 
 
+class ArmOverlayTests(unittest.TestCase):
+    BASE = {"mode": "dry-run", "live": {"start_usdc": 1000, "max_equity_usdc": 3000, "armed_until": None}, "kill_switch": {"warn_dd": 0.2}, "safety": {"max_order_frac": 0.25}}
+
+    def test_overlay_arms_without_touching_base_plan(self):
+        base = copy.deepcopy(self.BASE)
+        merged = hl_live.merge_arm(base, {"mode": "live", "live": {"armed_until": "2026-11-20", "max_equity_usdc": 150}})
+        self.assertEqual(merged["mode"], "live")
+        self.assertEqual(merged["live"], {"start_usdc": 1000, "max_equity_usdc": 150, "armed_until": "2026-11-20"})
+        self.assertEqual(merged["safety"], base["safety"])
+        self.assertEqual(base, self.BASE)  # Plan unveraendert
+        env = {"HL_AGENT_KEY": "k", "HL_ACCOUNT_ADDRESS": "0xabc"}
+        self.assertEqual(hl_live.check_gates(merged, True, env, dt.date(2026, 11, 20)), [])
+        self.assertTrue(hl_live.check_gates(merged, True, env, dt.date(2026, 11, 21)))
+
+    def test_overlay_cannot_loosen_safety(self):
+        for key in ("kill_switch", "safety", "venue"):
+            with self.assertRaises(SystemExit):
+                hl_live.merge_arm(copy.deepcopy(self.BASE), {"mode": "live", key: {"x": 1}})
+
+    def test_main_missing_overlay_and_no_arm_stay_blocked(self):
+        with tempfile.TemporaryDirectory() as t:
+            p = os.path.join(t, "plan.yaml")
+            with open(p, "w") as f:
+                f.write("mode: dry-run\nlive: {armed_until: null}\n")
+            with self.assertRaises(SystemExit) as cm:
+                hl_live.main(["--plan", p, "--arm", os.path.join(t, "fehlt.yaml"), "--confirm-real-money"], env={})
+            self.assertIn("nicht gefunden", str(cm.exception))
+            with self.assertRaises(SystemExit) as cm2:
+                hl_live.main(["--plan", p, "--confirm-real-money"], env={"HL_AGENT_KEY": "k", "HL_ACCOUNT_ADDRESS": "0x"})
+            self.assertIn("mode", str(cm2.exception))
+
+    def test_example_overlay_is_valid_and_repo_has_no_active_overlay(self):
+        import yaml
+
+        root = os.path.join(os.path.dirname(__file__), "..")
+        with open(os.path.join(root, "live_arm.example.yaml"), encoding="utf-8") as f:
+            ex = yaml.safe_load(f)
+        self.assertLessEqual(set(ex), hl_live.ARM_KEYS)
+        self.assertFalse(os.path.exists(os.path.join(root, "live_arm.yaml")))  # nur bewusst, im signierten Release, fuer den Testtag
+
+
 class R:
     status_code = 200
 

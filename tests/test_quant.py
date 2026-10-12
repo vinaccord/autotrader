@@ -527,6 +527,35 @@ class HlExecTests(unittest.TestCase):
         self.assertEqual(sf.orders([x["usd"] for x in o], 10000, 0, 0.25, 1.0), [])
         self.assertEqual(len({x["cloid"] for x in o}), len(o))
 
+    def test_split_is_even_and_never_leaves_tiny_remainder(self):
+        from autotrader.quant import hl_exec as h
+        prices, szd = {"UBTC": 80000.0}, {"UBTC": 5}
+        # Delta 227 USD bei Kontowert 1000: Teilgrenze 225 USD. Frueher 225 + 2 (Reststueck unter Mindestwert), jetzt gleichmaessig 2 x ~113.
+        o, sk = h.plan_orders({"BTC": 227.0}, {}, prices, szd, 1000, "A", "2026-10-07", max_order_frac=0.25)
+        self.assertEqual(sk, [])
+        self.assertEqual(len(o), 2)
+        self.assertTrue(all(x["usd"] >= 10 for x in o), [x["usd"] for x in o])
+        self.assertTrue(all(x["usd"] <= 0.9 * 0.25 * 1000 + 1 for x in o))
+        self.assertAlmostEqual(sum(x["sz"] for x in o), 227 / 80000, places=4)
+        # grosser Betrag: alle Stuecke etwa gleich gross
+        o, _ = h.plan_orders({"BTC": 8000.0}, {}, prices, szd, 10000, "A", "2026-10-07", max_order_frac=0.25)
+        usd = [x["usd"] for x in o]
+        self.assertLess(max(usd) - min(usd), 3.0)
+        self.assertLessEqual(max(usd), 2250 + 1)
+
+    def test_split_skipped_when_account_too_small_for_min_order(self):
+        from autotrader.quant import hl_exec as h
+        prices, szd = {"UBTC": 80000.0}, {"UBTC": 5}
+        # Kontowert 40: Teilgrenze 9 USD, Ziel 20 USD -> Teilstuecke unter 10 USD -> uebersprungen statt abgelehnter Orders
+        o, sk = h.plan_orders({"BTC": 20.0}, {}, prices, szd, 40, "A", "2026-10-07", max_order_frac=0.25)
+        self.assertEqual(o, [])
+        self.assertEqual(len(sk), 1)
+        self.assertIn("Teilorders unter Mindestwert", sk[0][1])
+        # Kontowert 100: Teilgrenze 22.5 USD, Ziel 50 USD -> 3 Stuecke von ~16.7 USD
+        o, sk = h.plan_orders({"BTC": 50.0}, {}, prices, szd, 100, "A", "2026-10-07", max_order_frac=0.25)
+        self.assertEqual(sk, [])
+        self.assertTrue(all(10 <= x["usd"] <= 22.5 + 1 for x in o), [x["usd"] for x in o])
+
     def test_log_is_idempotent(self):
         import tempfile
         from autotrader.quant import hl_exec as h
