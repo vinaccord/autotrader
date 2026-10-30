@@ -267,6 +267,21 @@ class ReportTests(unittest.TestCase):
         self.assertTrue(any("Exposure" in w for w in warns2))
         self.assertNotIn("VERALTET", " ".join(warns2))
 
+    def test_core_profile_change_is_hint_not_warning(self):
+        from autotrader.quant import report
+        dates, ohlc, fund = synth_market(1300)
+        cfg = copy.deepcopy(QCFG)
+        cfg["coins"] = ["BTC"]
+        today = dt.date.fromisoformat(dates[-1])
+        _, state, _ = report.build_report(self._pack(cfg, dates, ohlc, fund), self._pack(cfg, dates, ohlc, fund), dates[-10], None, today=today)
+        prev = copy.deepcopy(state)
+        e = state["core"]["trend"]["BTC"]
+        prev["core"]["trend"]["BTC"] = 0.0 if e > 0.5 else 1.0  # nur das Kernprofil wechselt
+        text, _, warns = report.build_report(self._pack(cfg, dates, ohlc, fund), self._pack(cfg, dates, ohlc, fund), dates[-10], prev, today=today)
+        self.assertFalse(any("Kernprofil" in w for w in warns), warns)
+        self.assertIn("Hinweise (keine Warnung)", text)
+        self.assertIn("Kernprofil (Vergleich): Trend BTC Exposure", text)
+
 
 class LedgerTests(unittest.TestCase):
     def test_append_only_no_duplicates_and_realised(self):

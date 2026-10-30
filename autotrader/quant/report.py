@@ -36,7 +36,7 @@ def snapshot(cfg, dates, ohlc, fund):
 def build_report(main, core, paper_start, prev_state, today=None, ledger_path=None):
     """main/core: dict mit cfg, dates, ohlc, fund. Gibt (text, neuer_state, warnungen) zurueck."""
     today = today or dt.datetime.now(dt.timezone.utc).date()
-    out, warns = [], []
+    out, warns, infos = [], [], []
     state = {}
     for key, name, p in (("main", "Hauptprofil 40", main), ("core", "Kernprofil (Vergleich)", core)):
         res, sig = snapshot(p["cfg"], p["dates"], p["ohlc"], p["fund"])
@@ -66,13 +66,16 @@ def build_report(main, core, paper_start, prev_state, today=None, ledger_path=No
                 warns.append(f"Spill-Gewichte nicht berechenbar ({type(e).__name__})")
         old = (prev_state or {}).get(key)
         if old:
+            # Signalwechsel im Hauptprofil sind Warnungen (dort wird gehandelt). Das Kernprofil laeuft nur zum Vergleich mit:
+            # seine Wechsel stehen als Hinweis im Bericht und loesen keine Warnung aus.
+            sink = warns if key == "main" else infos
             for c, e in exp.items():
                 d = e - old["trend"].get(c, e)
                 if abs(d) >= EXPOSURE_JUMP:
-                    warns.append(f"{name}: Trend {c} Exposure {old['trend'].get(c):.2f} -> {e:.2f}")
+                    sink.append(f"{name}: Trend {c} Exposure {old['trend'].get(c):.2f} -> {e:.2f}")
             for c, v in car.items():
                 if v != old["carry"].get(c, v):
-                    warns.append(f"{name}: Carry {c} {'Einstieg' if v else 'Ausstieg'}")
+                    sink.append(f"{name}: Carry {c} {'Einstieg' if v else 'Ausstieg'}")
     last = main["dates"][-1]
     age = (today - dt.date.fromisoformat(last)).days
     if age > 1:
@@ -117,7 +120,8 @@ def build_report(main, core, paper_start, prev_state, today=None, ledger_path=No
             out.append(line)
     except Exception:  # Makro ist optional und darf den Bericht nie verhindern
         pass
-    text = f"Autotrader Tagesbericht {today}\n" + ("WARNUNGEN:\n  - " + "\n  - ".join(warns) + "\n" if warns else "Keine Warnungen.\n") + "\n" + "\n".join(out) + "\n"
+    text = (f"Autotrader Tagesbericht {today}\n" + ("WARNUNGEN:\n  - " + "\n  - ".join(warns) + "\n" if warns else "Keine Warnungen.\n")
+            + ("Hinweise (keine Warnung):\n  - " + "\n  - ".join(infos) + "\n" if infos else "") + "\n" + "\n".join(out) + "\n")
     return text, state, warns
 
 
