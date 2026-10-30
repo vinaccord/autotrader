@@ -38,6 +38,27 @@ class NotifyBodyTests(unittest.TestCase):
     def test_short_without_warnings(self):
         self.assertIn("Keine Warnungen", report.notify_body(self.TEXT, [], "short"))
 
+    def test_short_with_status_line(self):
+        b = report.notify_body(self.TEXT, [], "short", "Kriterium A: laeuft, bisher eingehalten (Tag 24/56, verpasst 0 von erlaubt 1, laengste Luecke 24 h)")
+        self.assertTrue(b.endswith("laengste Luecke 24 h)"))
+        self.assertNotIn("0.85", b)
+
+    def test_add_status_violation_becomes_warning(self):
+        ok = "Autotrader Tagesbericht 2026-10-30\nKeine Warnungen.\n\nHauptprofil ...\n"
+        w = []
+        t = report.add_status(ok, w, "Kriterium A: laeuft", False)
+        self.assertEqual(w, [])
+        self.assertTrue(t.endswith("Kriterium A: laeuft\n"))
+        w = []
+        t = report.add_status(ok, w, "Kriterium A: VERLETZT", True)
+        self.assertEqual(len(w), 1)
+        self.assertIn("WARNUNGEN:\n  - Kriterium A verletzt", t)
+        w = ["Hauptprofil: Trend BTC Exposure 1.00 -> 0.00"]
+        t = report.add_status(self.TEXT, w, "Kriterium A: VERLETZT", True)
+        self.assertEqual(len(w), 2)
+        self.assertIn("  - Kriterium A verletzt", t)
+        self.assertIn("Trend BTC Exposure 0.00 -> 0.85", t)
+
 
 @unittest.skipUnless(HAVE, "ssh-keygen und git noetig")
 class SignedUpdateTests(unittest.TestCase):

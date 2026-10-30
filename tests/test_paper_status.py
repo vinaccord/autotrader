@@ -284,5 +284,33 @@ class RotatedLogTests(unittest.TestCase):
         self.assertEqual(ps.read_runs(tempfile.mkdtemp()), [])
 
 
+class SafetyAndStatusTests(unittest.TestCase):
+    def test_safety_counter(self):
+        lines_hit = "\n  SICHERUNG: Daten zu alt (40 h)\n  BLOCKIERT Order buy 0.01 UBTC limit 1\n  uebersprungen UBTC: Aenderung 162 USD unter 2% des Kontowerts\n  uebersprungen UETH: Teilorders unter Mindestwert 10 USD"
+        text = "\n".join([block("2026-10-28T01:05:00Z") + lines_hit, block("2026-10-29T01:05:00Z"), block("2026-09-01T01:05:00Z") + lines_hit])
+        sf = ps.evaluate_safety(ps.parse_runs(text), utc("2026-10-30T12:00:00"))
+        self.assertEqual((sf["runs"], sf["with_safety"], sf["blocked"], sf["skip_threshold"], sf["skip_min"]), (2, 1, 1, 1, 1))  # September ausserhalb 30 Tage
+        self.assertFalse(sf["always"])
+        self.assertEqual(sf["reasons"].most_common(1)[0][0], "Daten zu alt")
+
+    def test_always_triggering_is_flagged(self):
+        text = "\n".join(block(f"2026-10-{d:02d}T01:05:00Z") + "\n  SICHERUNG: Zweite Datenquelle nicht lesbar" for d in range(20, 30))
+        sf = ps.evaluate_safety(ps.parse_runs(text), utc("2026-10-30T12:00:00"))
+        self.assertTrue(sf["always"])
+
+    def test_status_line_without_amounts(self):
+        tmp = tempfile.mkdtemp()
+        with open(os.path.join(tmp, "daily.log"), "w") as f:
+            f.write("\n".join(block(f"2026-10-{d:02d}T01:05:00Z") for d in range(6, 31)))
+        line, violated = ps.status_line(tmp, "2026-10-06", utc("2026-10-30T12:00:00"))
+        self.assertFalse(violated)
+        self.assertIn("Tag 25/56", line)
+        self.assertIn("verpasst 0", line)
+        self.assertNotIn("USD", line)
+        line2, violated2 = ps.status_line(tempfile.mkdtemp(), "2026-10-06", utc("2026-10-30T12:00:00"))
+        self.assertTrue(violated2)
+        self.assertIn("VERLETZT", line2)
+
+
 if __name__ == "__main__":
     unittest.main()

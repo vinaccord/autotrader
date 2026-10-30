@@ -215,7 +215,46 @@ def evaluate_ks(path, runs):
     return {"level": st.get("level"), "hwm": hwm, "equity": eq, "dd": dd}
 
 
-def render(a, b, c, ks, now):
+def evaluate_safety(runs, now, days=30):
+    """Wie oft greifen die Sicherungen? Zaehlt in den Laeufen der letzten `days` Tage: Laeufe mit mindestens einer SICHERUNG-Zeile,
+    blockierte Orders und uebersprungene Aenderungen (unter Handelsschwelle bzw. unter Mindestwert). Greifen sie in jedem Lauf, sind
+    Schwellen oder Daten verdaechtig; greifen sie nie, ist das bei ruhigem Betrieb normal."""
+    since = now - dt.timedelta(days=days)
+    sel = [r for r in runs if r["ts"] >= since]
+    out = {"runs": len(sel), "with_safety": 0, "blocked": 0, "skip_threshold": 0, "skip_min": 0, "reasons": Counter()}
+    for r in sel:
+        hit = False
+        for line in r["lines"]:
+            t = line.strip()
+            if t.startswith("SICHERUNG:"):
+                hit = True
+                out["reasons"][t[len("SICHERUNG:"):].strip().split(" (")[0][:50]] += 1
+            elif t.startswith("BLOCKIERT Order"):
+                out["blocked"] += 1
+            elif t.startswith("uebersprungen"):
+                if "Mindestwert" in t:
+                    out["skip_min"] += 1
+                else:
+                    out["skip_threshold"] += 1
+        out["with_safety"] += hit
+    out["always"] = out["runs"] >= 7 and out["with_safety"] == out["runs"]
+    return out
+
+
+def a_line(a):
+    """Eine Zeile fuer die taegliche Meldung: keine Betraege, keine Positionen (ntfy-Thema ist oeffentlich erreichbar)."""
+    return (f"Kriterium A: {a['verdict']} (Tag {a['n_days']}/{a['total_days']}, verpasst {len(a['missed'])} von erlaubt {a['max_missed']}, "
+            f"laengste Luecke {a['gap_h']:.0f} h)")
+
+
+def status_line(data_dir, start, now=None, profile="quant_40"):
+    """Fuer den Tagesbericht: Zeile zu Kriterium A und ob es verletzt ist. Liest nur."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    a = evaluate_a(read_runs(data_dir), _csv(os.path.join(data_dir, "ledger.csv")), dt.date.fromisoformat(start), now, profile)
+    return a_line(a), a["violated"]
+
+
+def render(a, b, c, ks, now, sf=None):
     L = []
     tag = {True: "PASS", False: "FAIL"}
     L.append(f"Papierstatus {now:%Y-%m-%d %H:%M} UTC, letzter Lauf {a['last_run']:%Y-%m-%d %H:%M} UTC" if a["last_run"] else "Papierstatus: kein Lauf im daily.log")
@@ -244,6 +283,13 @@ def render(a, b, c, ks, now):
     else:
         L.append(f"C Kosten: {tag[c['ok']]} Papier-Gebuehr {c['fee_bps']:g} bps gegen Backtest {c['backtest_bps']:g} bps = {c['ratio']:.2f}x (Grenze {c['limit']:g}x)")
         L.append(f"  {c['n']} Orders, Umsatz {c['turnover']:,.0f} USD, Gebuehren {c['cost']:,.2f} USD. Papier kennt keine Slippage: echte Pruefung erst im Kleinstbetrag-Test (E).")
+    if sf is not None:
+        L.append(f"Sicherungen (letzte 30 Tage, {sf['runs']} Laeufe): ausgeloest in {sf['with_safety']} Laeufen, blockierte Orders {sf['blocked']}, "
+                 f"uebersprungen {sf['skip_threshold']} unter Handelsschwelle, {sf['skip_min']} unter Mindestwert")
+        if sf["reasons"]:
+            L.append("  haeufigste: " + "; ".join(f"{k} ({v}x)" for k, v in sf["reasons"].most_common(2)))
+        if sf["always"]:
+            L.append("  ACHTUNG: Sicherungen greifen in jedem Lauf, Schwellen oder Datenquelle pruefen")
     if ks:
         dd = f", Verlust ab Hoechststand {ks['dd']:.1%}" if ks["dd"] is not None else ""
         L.append(f"Kill-Switch Papier: {ks['level']}, Hoechststand {ks['hwm']:,.0f} USD{dd}")
@@ -283,7 +329,7 @@ def main(argv=None, now=None):
     res_b = evaluate_b(runs, ledger, orders, paper, a.profile)
     res_c = evaluate_c(orders, fee, float(cfg.get("costs", {}).get("trend_bps", 10)))
     ks = evaluate_ks(os.path.join(d, "killswitch_A_dryrun.json"), runs)
-    print(render(res_a, res_b, res_c, ks, now))
+    print(render(res_a, res_b, res_c, ks, now, evaluate_safety(runs, now)))
     bad = res_a["violated"] or (res_b["available"] and not res_b["ok"]) or (res_c["available"] and not res_c["ok"])
     return 1 if bad else 0
 

@@ -133,24 +133,36 @@ def _load(path):
     return {"cfg": cfg, "dates": dates, "ohlc": ohlc, "fund": fund}
 
 
-def notify_body(text, warns, detail):
-    """detail 'full': ganzer Bericht (Papierphase). 'short': keine Positionen oder Betraege im Push, nur Status (ntfy.sh ist oeffentlich)."""
+def notify_body(text, warns, detail, status=None):
+    """detail 'full': ganzer Bericht (Papierphase). 'short': keine Positionen oder Betraege im Push, nur Status (ntfy.sh ist oeffentlich).
+    status: optionale Zeile zu Kriterium A (ohne Betraege), wird bei 'short' angehaengt; bei 'full' steht sie schon im Bericht."""
     if detail == "short":
         first = text.splitlines()[0] if text else "Autotrader"
-        if warns:
-            return f"{first}\n{len(warns)} Warnung(en). Details auf dem Server: latest_report.txt"
-        return f"{first}\nKeine Warnungen."
+        body = f"{first}\n{len(warns)} Warnung(en). Details auf dem Server: latest_report.txt" if warns else f"{first}\nKeine Warnungen."
+        return body + (f"\n{status}" if status else "")
     return text
 
 
-def notify(text, warns):
+def add_status(text, warns, status, violated):
+    """Haengt die Statuszeile an den Bericht. Ist Kriterium A verletzt, wird das zusaetzlich eine Warnung (Liste und Text)."""
+    if violated:
+        msg = "Kriterium A verletzt, Details: paper_status"
+        warns.append(msg)
+        if "WARNUNGEN:\n" in text:
+            text = text.replace("WARNUNGEN:\n", f"WARNUNGEN:\n  - {msg}\n", 1)
+        else:
+            text = text.replace("Keine Warnungen.\n", f"WARNUNGEN:\n  - {msg}\n", 1)
+    return text.rstrip("\n") + f"\n\n{status}\n"
+
+
+def notify(text, warns, status=None):
     topic = os.environ.get("NTFY_TOPIC")
     if not topic:
         return
     import requests
 
     title = "Autotrader: " + ("WARNUNG" if warns else "OK")
-    body = notify_body(text, warns, os.environ.get("NTFY_DETAIL", "full"))
+    body = notify_body(text, warns, os.environ.get("NTFY_DETAIL", "full"), status)
     try:
         requests.post(f"https://ntfy.sh/{topic}", data=body.encode("utf-8"), headers={"Title": title, "Priority": "high" if warns else "default"}, timeout=15)
     except requests.RequestException:
@@ -171,12 +183,20 @@ def main(argv=None):
         with open(sp, encoding="utf-8") as f:
             prev = json.load(f)
     text, state, warns = build_report(m, c, a.paper_start, prev, ledger_path=os.path.join(d, "ledger.csv"))
+    status = None
+    try:  # Statuszeile darf den Bericht nie verhindern
+        from . import paper_status
+
+        status, violated = paper_status.status_line(d, a.paper_start)
+        text = add_status(text, warns, status, violated)
+    except Exception as e:
+        status = f"Kriterium A: nicht auswertbar ({type(e).__name__})"
     with open(os.path.join(d, "latest_report.txt"), "w", encoding="utf-8") as f:
         f.write(text)
     with open(sp, "w", encoding="utf-8") as f:
         json.dump(state, f)
     print(text)
-    notify(text, warns)
+    notify(text, warns, status)
 
 
 if __name__ == "__main__":
